@@ -90,6 +90,15 @@
  * ロックが不要な用途では追加コストはゼロ（no-opはコンパイラが最適化で消す）。
  * どの粒度でロックするか（dispatch呼び出し単位か、もっと粗い単位か）は
  * アプリケーション側の責務であり、本ライブラリはフックの提供にとどめる。
+ *
+ * --- 未使用関数の警告について ---
+ *
+ * DEFINE_SUM_TYPE等が生成する各関数は「利用側が必要なものだけを使う」前提であり、
+ * 生成された全関数を毎回使い切るとは限らない（例えばコンストラクタとdispatchだけ使い、
+ * ゲッターは使わない、というのはごく普通の使い方である）。GCCは未使用のstatic inline関数を
+ * 警告しないが、Clangは -Wunused-function で警告する（実機で確認済みの実在するコンパイラ間差異）。
+ * そのため生成される全 static inline 関数に SUM_MAYBE_UNUSED を付与し、
+ * 両コンパイラで意図せぬ警告が出ないようにしている。
  */
 #ifndef GENERIC_SUM_TYPE_H
 #define GENERIC_SUM_TYPE_H
@@ -98,9 +107,11 @@
 
 #if defined(__GNUC__) || defined(__clang__)
 #define SUM_UNREACHABLE() __builtin_unreachable()
+#define SUM_MAYBE_UNUSED __attribute__((unused))
 #else
 #include <stdlib.h>
 #define SUM_UNREACHABLE() abort()
+#define SUM_MAYBE_UNUSED
 #endif
 
 #ifndef SUM_CTX_LOCK
@@ -116,11 +127,13 @@
 #define SUM_UNION_MEMBER(NAME, EXTRA, TAG, TYPE) TYPE TAG;
 
 #define SUM_CTOR(NAME, EXTRA, TAG, TYPE)                             \
+    SUM_MAYBE_UNUSED                                                 \
     static inline NAME NAME##_new_##TAG(TYPE v) {                    \
         return (NAME){ .tag = NAME##_##TAG, .as.TAG = v };           \
     }
 
 #define SUM_GETTER(NAME, EXTRA, TAG, TYPE)                           \
+    SUM_MAYBE_UNUSED                                                 \
     static inline TYPE *NAME##_get_##TAG(NAME *self) {               \
         return self->tag == NAME##_##TAG ? &self->as.TAG : NULL;     \
     }
@@ -143,6 +156,7 @@
     case NAME##_##TAG: return NAME##_on_##TAG(&self->as.TAG);
 
 #define DEFINE_SUM_MATCH(NAME, VARIANTS, MATCH_FN, RET_TYPE)                \
+    SUM_MAYBE_UNUSED                                                        \
     static inline RET_TYPE MATCH_FN(NAME *self                             \
         VARIANTS(SUM_MATCH_PARAM, NAME, RET_TYPE)) {                        \
         switch (self->tag) {                                                \
@@ -164,6 +178,7 @@
     case NAME##_##TAG: NAME##_on_##TAG(&self->as.TAG, ctx); break;
 
 #define DEFINE_SUM_DISPATCH(NAME, VARIANTS, DISPATCH_FN, CTX_TYPE)         \
+    SUM_MAYBE_UNUSED                                                       \
     static inline void DISPATCH_FN(NAME *self, CTX_TYPE *ctx              \
         VARIANTS(SUM_DISPATCH_PARAM, NAME, CTX_TYPE)) {                    \
         SUM_CTX_LOCK(ctx);                                                  \
@@ -186,6 +201,7 @@
     case NAME##_##TAG: NAME##_on_##TAG(&self->as.TAG); return;
 
 #define DEFINE_SUM_DESTROY(NAME, VARIANTS, DESTROY_FN)                     \
+    SUM_MAYBE_UNUSED                                                       \
     static inline void DESTROY_FN(NAME *self                              \
         VARIANTS(SUM_DESTROY_PARAM, NAME, _)) {                            \
         switch (self->tag) {                                               \
@@ -195,6 +211,7 @@
 
 /* 資源を持たないvariant向けの「何もしないデストラクタ」を生成するヘルパー */
 #define SUM_DEFINE_NOOP_DESTROY(FN_NAME, TYPE)                       \
+    SUM_MAYBE_UNUSED                                                 \
     static inline void FN_NAME(TYPE *v) { (void)v; }
 
 /* ---- DEFINE_SUM_COPY が使うアスペクトマクロ ----
@@ -211,6 +228,7 @@
                         .as.TAG = NAME##_copy_##TAG(&self->as.TAG) };
 
 #define DEFINE_SUM_COPY(NAME, VARIANTS, COPY_FN)                           \
+    SUM_MAYBE_UNUSED                                                       \
     static inline NAME COPY_FN(const NAME *self                           \
         VARIANTS(SUM_COPY_PARAM, NAME, _)) {                               \
         switch (self->tag) {                                               \
@@ -221,6 +239,7 @@
 
 /* 値そのものを複製するだけでよいvariant向けの「浅いコピー」を生成するヘルパー */
 #define SUM_DEFINE_IDENTITY_COPY(FN_NAME, TYPE)                      \
+    SUM_MAYBE_UNUSED                                                 \
     static inline TYPE FN_NAME(const TYPE *v) { return *v; }
 
 #endif /* GENERIC_SUM_TYPE_H */
