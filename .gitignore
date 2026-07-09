@@ -1,0 +1,24 @@
+# ビルド成果物
+*.o
+*.obj
+*.exe
+*.out
+*.a
+*.so
+*.dylib
+
+# このリポジトリのデモ/テストは拡張子なしバイナリとして生成されることが多いので、
+# ソースファイル名と同名の拡張子なしバイナリを明示的に除外する
+demo
+shape_demo
+command_demo
+resource_demo
+threadsafe_dispatch_demo
+test_generic_sum_type
+
+# エディタ・OS由来
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

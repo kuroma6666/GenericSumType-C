@@ -1,0 +1,140 @@
+/*
+ * generic_sum_type.h の単体テスト。
+ * 外部フレームワークは使わず、標準の assert() のみで完結させている
+ * （本ライブラリ自体が依存ゼロを方針としているため、テストもそれに合わせた）。
+ *
+ * ビルド:  gcc -std=c11 -pedantic -Wall -Wextra -Werror -o test_generic_sum_type test_generic_sum_type.c
+ * 実行:    ./test_generic_sum_type
+ */
+#define _POSIX_C_SOURCE 200809L
+#include <assert.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
+
+/* SUM_CTX_LOCK/UNLOCK フックの検証用: 呼び出し回数を記録するだけのフェイクロック */
+static int g_lock_count = 0;
+static int g_unlock_count = 0;
+#define SUM_CTX_LOCK(ctx)   (g_lock_count++)
+#define SUM_CTX_UNLOCK(ctx) (g_unlock_count++)
+#include "generic_sum_type.h"
+
+static int tests_run = 0;
+#define RUN(test) do { printf("- %-55s ... ", #test); test(); tests_run++; printf("OK\n"); } while (0)
+
+/* ============ テスト対象の型定義 ============ */
+typedef struct { int32_t v; } IntBox;
+typedef struct { const char *v; } StrBox;
+
+#define IOS_VARIANTS(X, NAME, EXTRA) \
+    X(NAME, EXTRA, i, IntBox)        \
+    X(NAME, EXTRA, s, StrBox)
+
+typedef struct { int total; } SumCtx;
+
+DEFINE_SUM_TYPE(IntOrStr, IOS_VARIANTS)
+DEFINE_SUM_MATCH(IntOrStr, IOS_VARIANTS, IntOrStr_to_len, int)
+DEFINE_SUM_DISPATCH(IntOrStr, IOS_VARIANTS, IntOrStr_dispatch, SumCtx)
+DEFINE_SUM_DESTROY(IntOrStr, IOS_VARIANTS, IntOrStr_destroy)
+DEFINE_SUM_COPY(IntOrStr, IOS_VARIANTS, IntOrStr_copy)
+
+/* ============ 1. DEFINE_SUM_TYPE: コンストラクタ・ゲッター ============ */
+static void test_ctor_and_getter(void) {
+    IntOrStr a = IntOrStr_new_i((IntBox){ .v = 42 });
+    assert(IntOrStr_get_i(&a) != NULL);
+    assert(IntOrStr_get_i(&a)->v == 42);
+    assert(IntOrStr_get_s(&a) == NULL); /* 違うタグなのでNULLを返す */
+
+    IntOrStr b = IntOrStr_new_s((StrBox){ .v = "hello" });
+    assert(IntOrStr_get_s(&b) != NULL);
+    assert(strcmp(IntOrStr_get_s(&b)->v, "hello") == 0);
+    assert(IntOrStr_get_i(&b) == NULL);
+}
+
+/* ============ 2. DEFINE_SUM_MATCH: 正しいハンドラに振り分けられるか ============ */
+static int len_i(IntBox *b) { (void)b; return -1; }
+static int len_s(StrBox *b) { return (int)strlen(b->v); }
+
+static void test_match_dispatches_to_correct_handler(void) {
+    IntOrStr a = IntOrStr_new_i((IntBox){ .v = 1 });
+    IntOrStr b = IntOrStr_new_s((StrBox){ .v = "abcde" });
+    assert(IntOrStr_to_len(&a, len_i, len_s) == -1);
+    assert(IntOrStr_to_len(&b, len_i, len_s) == 5);
+}
+
+/* ============ 3. DEFINE_SUM_DISPATCH: ctxの書き換え + ロックフックの呼び出し ============ */
+static void on_i(IntBox *b, SumCtx *ctx) { ctx->total += b->v; }
+static void on_s(StrBox *b, SumCtx *ctx) { ctx->total += (int)strlen(b->v); }
+
+static void test_dispatch_mutates_ctx_and_calls_lock_hooks(void) {
+    SumCtx ctx = { .total = 0 };
+    IntOrStr a = IntOrStr_new_i((IntBox){ .v = 10 });
+    IntOrStr b = IntOrStr_new_s((StrBox){ .v = "abc" });
+
+    int lock_before = g_lock_count, unlock_before = g_unlock_count;
+    IntOrStr_dispatch(&a, &ctx, on_i, on_s);
+    IntOrStr_dispatch(&b, &ctx, on_i, on_s);
+
+    assert(ctx.total == 13); /* 10 + strlen("abc")=3 */
+    assert(g_lock_count == lock_before + 2);     /* dispatch呼び出し回数と一致 */
+    assert(g_unlock_count == unlock_before + 2);
+    assert(g_lock_count == g_unlock_count);      /* lock/unlockの対応が崩れていない
+                                                     (このassertが無ければ過去に実際に
+                                                      作り込んだreturn/break バグを
+                                                      再発検出できない) */
+}
+
+/* ============ 4. DEFINE_SUM_DESTROY: タグごとに正しいハンドラが呼ばれるか ============ */
+static int g_destroy_i_called = 0;
+static int g_destroy_s_called = 0;
+static void destroy_i(IntBox *b) { (void)b; g_destroy_i_called++; }
+static void destroy_s(StrBox *b) { free((void *)b->v); g_destroy_s_called++; }
+
+static void test_destroy_dispatches_per_tag(void) {
+    IntOrStr a = IntOrStr_new_i((IntBox){ .v = 1 });
+    IntOrStr b = IntOrStr_new_s((StrBox){ .v = strdup("owned") });
+
+    g_destroy_i_called = 0;
+    g_destroy_s_called = 0;
+    IntOrStr_destroy(&a, destroy_i, destroy_s);
+    IntOrStr_destroy(&b, destroy_i, destroy_s);
+
+    assert(g_destroy_i_called == 1);
+    assert(g_destroy_s_called == 1);
+}
+
+/* ============ 5. DEFINE_SUM_COPY: ポインタ資源のディープコピー ============ */
+static IntBox copy_i(const IntBox *b) { return *b; }
+static StrBox copy_s(const StrBox *b) { return (StrBox){ .v = strdup(b->v) }; }
+
+static void test_copy_is_deep_for_pointer_payload(void) {
+    IntOrStr original = IntOrStr_new_s((StrBox){ .v = strdup("copy-me") });
+    IntOrStr copy = IntOrStr_copy(&original, copy_i, copy_s);
+
+    StrBox *o = IntOrStr_get_s(&original);
+    StrBox *c = IntOrStr_get_s(&copy);
+    assert(o->v != c->v);              /* 別アドレス = ディープコピーされている */
+    assert(strcmp(o->v, c->v) == 0);   /* 内容は同一 */
+
+    IntOrStr_destroy(&original, destroy_i, destroy_s);
+    IntOrStr_destroy(&copy, destroy_i, destroy_s);
+}
+
+static void test_copy_is_identity_for_pod_payload(void) {
+    IntOrStr original = IntOrStr_new_i((IntBox){ .v = 99 });
+    IntOrStr copy = IntOrStr_copy(&original, copy_i, copy_s);
+    assert(IntOrStr_get_i(&copy)->v == 99);
+}
+
+int main(void) {
+    printf("generic_sum_type.h 単体テスト\n");
+    RUN(test_ctor_and_getter);
+    RUN(test_match_dispatches_to_correct_handler);
+    RUN(test_dispatch_mutates_ctx_and_calls_lock_hooks);
+    RUN(test_destroy_dispatches_per_tag);
+    RUN(test_copy_is_deep_for_pointer_payload);
+    RUN(test_copy_is_identity_for_pod_payload);
+    printf("%d件全て成功\n", tests_run);
+    return 0;
+}
