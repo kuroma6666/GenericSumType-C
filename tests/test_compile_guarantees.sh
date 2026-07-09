@@ -9,7 +9,7 @@
 #
 # 実行: ./test_compile_guarantees.sh
 set -u
-HEADER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HEADER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../include" && pwd)"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
