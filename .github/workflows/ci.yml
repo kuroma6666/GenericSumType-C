@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: build-and-test (${{ matrix.cc }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # design_spec.md で明言している通り、対応コンパイラはGCC/Clangのみ
+        # （MSVCは意図的にサポート対象外）。
+        cc: [gcc, clang]
+    env:
+      CC: ${{ matrix.cc }}
+      CFLAGS: -std=c11 -pedantic -Wall -Wextra -Werror -Iinclude
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show compiler version
+        run: $CC --version
+
+      - name: Build all examples
+        run: |
+          set -e
+          for f in examples/*.c; do
+            echo "== $f =="
+            if [ "$(basename "$f")" = "threadsafe_dispatch_demo.c" ]; then
+              $CC $CFLAGS -pthread -o "/tmp/$(basename "$f" .c)" "$f"
+            else
+              $CC $CFLAGS -o "/tmp/$(basename "$f" .c)" "$f"
+            fi
+          done
+
+      - name: Run example binaries (デモの実行が落ちないことも確認する)
+        run: |
+          set -e
+          /tmp/demo
+          /tmp/shape_demo
+          /tmp/command_demo
+          /tmp/resource_demo
+          /tmp/threadsafe_dispatch_demo
+
+      - name: Build and run unit tests (AddressSanitizer付き)
+        run: |
+          $CC $CFLAGS -fsanitize=address -g -o /tmp/test_gst tests/test_generic_sum_type.c
+          /tmp/test_gst
+
+      - name: Run compile-time guarantee regression tests
+        # generic_sum_type.h の価値の半分は「間違えるとコンパイルが落ちること」
+        # (design_spec.md 3節)。ここが壊れていないかを専用スクリプトで検証する。
+        run: |
+          chmod +x tests/test_compile_guarantees.sh
+          CC=$CC tests/test_compile_guarantees.sh

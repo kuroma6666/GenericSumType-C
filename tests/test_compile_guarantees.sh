@@ -8,8 +8,10 @@
 # にあるため、それ専用のテストとして分けている。
 #
 # 実行: ./test_compile_guarantees.sh
+#       CC=clang ./test_compile_guarantees.sh  (別コンパイラで検証する場合)
 set -u
 HEADER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../include" && pwd)"
+CC="${CC:-gcc}"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -18,7 +20,7 @@ fail=0
 
 expect_fail() {
     local name="$1" file="$2"
-    if gcc -I"$HEADER_DIR" -std=c11 -Wall -Wextra -Werror -c "$file" -o "$TMP/out.o" 2>"$TMP/err.log"; then
+    if "$CC" -I"$HEADER_DIR" -std=c11 -Wall -Wextra -Werror -c "$file" -o "$TMP/out.o" 2>"$TMP/err.log"; then
         echo "NG  $name: コンパイルが成功してしまった（失敗するはずだった）"
         fail=$((fail+1))
     else
@@ -29,7 +31,7 @@ expect_fail() {
 
 expect_pass() {
     local name="$1" file="$2"
-    if gcc -I"$HEADER_DIR" -std=c11 -Wall -Wextra -Werror -c "$file" -o "$TMP/out.o" 2>"$TMP/err.log"; then
+    if "$CC" -I"$HEADER_DIR" -std=c11 -Wall -Wextra -Werror -c "$file" -o "$TMP/out.o" 2>"$TMP/err.log"; then
         echo "OK  $name: 期待通りコンパイル成功"
         pass=$((pass+1))
     else
