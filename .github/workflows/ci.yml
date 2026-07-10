@@ -56,9 +56,17 @@ jobs:
           /tmp/recipe_param_demo
 
       - name: Build and run unit tests (AddressSanitizer付き)
+        # tests/test_*.c を全て対象にする(ライブラリ本体のtest_generic_sum_type.cに加え、
+        # examples/内部処理系・通信処理系・ROM/RAMパラメータ取得系の3サンプルに対する
+        # ホワイトボックステストも同じ扱いでビルド・実行する)。
         run: |
-          $CC $CFLAGS -fsanitize=address -g -o /tmp/test_gst tests/test_generic_sum_type.c
-          /tmp/test_gst
+          set -e
+          for tf in tests/test_*.c; do
+            tbase=$(basename "$tf" .c)
+            echo "== $tf =="
+            $CC $CFLAGS -fsanitize=address -g -o "/tmp/$tbase" "$tf"
+            "/tmp/$tbase"
+          done
 
       - name: Run compile-time guarantee regression tests
         # generic_sum_type.h の価値の半分は「間違えるとコンパイルが落ちること」

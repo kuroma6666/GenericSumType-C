@@ -54,16 +54,24 @@ GenericSumType-C/
 │   ├── command_demo.c             # コマンドディスパッチ(DEFINE_SUM_DISPATCH)
 │   ├── resource_demo.c            # ポインタ資源の解放/コピー(DEFINE_SUM_DESTROY/COPY)
 │   ├── threadsafe_dispatch_demo.c # pthreadでのロックフック検証
-│   ├── internal_command_demo.c    # 内部処理系Command(デバイス状態を書き換えるDISPATCH)
-│   ├── protocol_frame_demo.c      # 通信処理系Command(受信フレームを分類するMATCH)
-│   └── recipe_param_demo.c        # ROM/RAMパラメータ取得系Command(永続ストアへのDISPATCH)
+│   ├── internal_command.h         # 内部処理系Commandの型・DISPATCH・ハンドラ本体
+│   ├── internal_command_demo.c    # ↑を使う薄いデモ(デバイス状態を書き換えるDISPATCH)
+│   ├── protocol_frame.h           # 通信処理系Commandの型・MATCH・分類ロジック
+│   ├── protocol_frame_demo.c      # ↑を使う薄いデモ(受信フレームを分類するMATCH)
+│   ├── recipe_command.h           # ROM/RAMパラメータ取得系Commandの型・DISPATCH・ハンドラ本体
+│   └── recipe_param_demo.c        # ↑を使う薄いデモ(永続ストアへのDISPATCH)
 ├── tests/
-│   ├── test_generic_sum_type.c     # 単体テスト(assert()ベース)
+│   ├── test_generic_sum_type.c     # ライブラリ本体の単体テスト(assert()ベース)
+│   ├── test_internal_command.c     # internal_command.hの単体テスト
+│   ├── test_protocol_frame.c       # protocol_frame.hの単体テスト
+│   ├── test_recipe_command.c       # recipe_command.hの単体テスト
 │   └── test_compile_guarantees.sh  # コンパイル時保証の回帰テスト
 ├── .github/workflows/ci.yml       # GitHub Actions(gcc/clang × c99/c11/c17)
 ├── design_spec.md                 # 設計仕様書(判断根拠・トレードオフ・既知の制約)
 └── api_reference.md               # APIリファレンス(マクロ一覧・シグネチャ)
 ```
+
+`internal_command_demo.c` / `protocol_frame_demo.c` / `recipe_param_demo.c` は、型定義・DISPATCH(またはMATCH)・ハンドラ本体をそれぞれ同名の`.h`に切り出し、`main()`だけの薄いドライバにしている。これはdesign_spec.md 4.10節で検証済みの「共通ヘッダを複数の`.c`からincludeする」パターンの応用で、デモ本体と`tests/`配下の単体テストが同じハンドラ実装を共有できるようにするための構成である(単体テストのために`main()`を分割できない、という制約への対応)。
 
 ## ビルド・テスト
 
@@ -74,12 +82,14 @@ gcc -std=c11 -pedantic -Wall -Wextra -Werror -Iinclude examples/demo.c -o demo
 ./demo
 ```
 
-単体テスト(AddressSanitizer付き):
+単体テスト(AddressSanitizer付き)。`tests/test_*.c` はライブラリ本体とexamples/内の3サンプル(内部処理系/通信処理系/ROM・RAMパラメータ取得系)それぞれに対応する:
 
 ```sh
-gcc -std=c11 -pedantic -Wall -Wextra -Werror -Iinclude -fsanitize=address -g \
-    tests/test_generic_sum_type.c -o test_gst
-./test_gst
+for tf in tests/test_*.c; do
+    gcc -std=c11 -pedantic -Wall -Wextra -Werror -Iinclude -fsanitize=address -g \
+        "$tf" -o "/tmp/$(basename "$tf" .c)"
+    "/tmp/$(basename "$tf" .c)"
+done
 ```
 
 コンパイル時保証(渡し忘れ・順序取り違えが実際に検出されるか)の回帰テスト:
