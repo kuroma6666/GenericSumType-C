@@ -122,6 +122,114 @@ int main(void) {
 EOF
 expect_pass "正常系" "$TMP/ok.c"
 
+# --- 5. TYPEに関数ポインタ型をtypedefせず直接渡す: 失敗するべき（design_spec.md 4.5節） ---
+#         プリプロセッサのマクロ引数分割自体は括弧に保護されるため起きない。
+#         実際に壊れる原因は「TYPE 識別子;」という宣言パターンが関数ポインタの
+#         宣言子構文（TYPE (*識別子)(...)）と噛み合わないこと。この区別を
+#         回帰テストとして固定する。
+cat > "$TMP/raw_fnptr.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int a; } PA;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, cb, void (*)(int,int))
+DEFINE_SUM_TYPE(T, V)
+int main(void) { return 0; }
+EOF
+expect_fail "TYPEに関数ポインタ型を直接渡す(typedefなし)" "$TMP/raw_fnptr.c"
+
+# --- 6. TYPEを事前にtypedefしてから渡す: 成功するべき（design_spec.md 4.5節の回避策） ---
+cat > "$TMP/typedef_fnptr.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int a; } PA;
+typedef void (*Callback)(int, int);
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, cb, Callback)
+DEFINE_SUM_TYPE(T, V)
+static void my_cb(int x, int y) { (void)x; (void)y; }
+int main(void) {
+    T t = T_new_cb(my_cb);
+    Callback *pc = T_get_cb(&t);
+    return pc ? 0 : 1;
+}
+EOF
+expect_pass "TYPEを事前にtypedefしてから渡す(関数ポインタ型の回避策)" "$TMP/typedef_fnptr.c"
+
+# --- 7. 複数翻訳単位での共有: 成功するべき（design_spec.md 4.10節） ---
+#         同じDEFINE_SUM_TYPEを1つの共通ヘッダ(インクルードガード付き)で定義し、
+#         別々の.cファイルからincludeして値を受け渡しできるかを検証する。
+#         単一ファイルの-cコンパイルでは検証できないため、専用の関数として分離している。
+check_multi_tu() {
+    local name="複数翻訳単位での共有(command_type.hを2つの.cからinclude)"
+    local dir="$TMP/multitu"
+    mkdir -p "$dir"
+
+    cat > "$dir/command_type.h" << 'EOF'
+#ifndef COMMAND_TYPE_H
+#define COMMAND_TYPE_H
+#include "generic_sum_type.h"
+
+typedef struct { int dx, dy; } CmdMove;
+typedef struct { int target; } CmdAttack;
+
+#define CMD_VARIANTS(X, NAME, EXTRA) \
+    X(NAME, EXTRA, move, CmdMove)    \
+    X(NAME, EXTRA, attack, CmdAttack)
+
+DEFINE_SUM_TYPE(Command, CMD_VARIANTS)
+
+typedef struct { int hp; int x, y; } GameState;
+
+DEFINE_SUM_DISPATCH(Command, CMD_VARIANTS, Command_dispatch, GameState)
+
+#endif
+EOF
+
+    cat > "$dir/worker.c" << 'EOF'
+#include "command_type.h"
+
+static void on_move(CmdMove *m, GameState *gs) { gs->x += m->dx; gs->y += m->dy; }
+static void on_attack(CmdAttack *a, GameState *gs) { gs->hp -= a->target; }
+
+void worker_process(Command cmd, GameState *gs) {
+    Command_dispatch(&cmd, gs, on_move, on_attack);
+}
+EOF
+
+    cat > "$dir/main.c" << 'EOF'
+#include "command_type.h"
+
+void worker_process(Command cmd, GameState *gs);
+
+int main(void) {
+    GameState gs = { .hp = 100, .x = 0, .y = 0 };
+    Command c1 = Command_new_move((CmdMove){ .dx = 3, .dy = 4 });
+    Command c2 = Command_new_attack((CmdAttack){ .target = 20 });
+    worker_process(c1, &gs);
+    worker_process(c2, &gs);
+    return (gs.hp == 80 && gs.x == 3 && gs.y == 4) ? 0 : 1;
+}
+EOF
+
+    if ! "$CC" -I"$HEADER_DIR" -I"$dir" -std="$STD" -Wall -Wextra -Werror -c "$dir/worker.c" -o "$dir/worker.o" 2>"$TMP/err.log"; then
+        echo "NG  $name: worker.cのコンパイルが失敗した"
+        cat "$TMP/err.log"; fail=$((fail+1)); return
+    fi
+    if ! "$CC" -I"$HEADER_DIR" -I"$dir" -std="$STD" -Wall -Wextra -Werror -c "$dir/main.c" -o "$dir/main.o" 2>"$TMP/err.log"; then
+        echo "NG  $name: main.cのコンパイルが失敗した"
+        cat "$TMP/err.log"; fail=$((fail+1)); return
+    fi
+    if ! "$CC" "$dir/worker.o" "$dir/main.o" -o "$dir/multitu_demo" 2>"$TMP/err.log"; then
+        echo "NG  $name: リンクが失敗した"
+        cat "$TMP/err.log"; fail=$((fail+1)); return
+    fi
+    if "$dir/multitu_demo"; then
+        echo "OK  $name: 期待通りビルド・リンク・実行成功"
+        pass=$((pass+1))
+    else
+        echo "NG  $name: 実行結果が期待値と異なる(ビルドは通ったが値がおかしい)"
+        fail=$((fail+1))
+    fi
+}
+check_multi_tu
+
 echo
 echo "$pass 件成功 / $fail 件失敗"
 exit "$fail"
