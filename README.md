@@ -53,7 +53,10 @@ GenericSumType-C/
 │   ├── shape_demo.c               # 図形の面積計算・表示(DEFINE_SUM_MATCH複数定義)
 │   ├── command_demo.c             # コマンドディスパッチ(DEFINE_SUM_DISPATCH)
 │   ├── resource_demo.c            # ポインタ資源の解放/コピー(DEFINE_SUM_DESTROY/COPY)
-│   └── threadsafe_dispatch_demo.c # pthreadでのロックフック検証
+│   ├── threadsafe_dispatch_demo.c # pthreadでのロックフック検証
+│   ├── internal_command_demo.c    # 内部処理系Command(デバイス状態を書き換えるDISPATCH)
+│   ├── protocol_frame_demo.c      # 通信処理系Command(受信フレームを分類するMATCH)
+│   └── recipe_param_demo.c        # ROM/RAMパラメータ取得系Command(永続ストアへのDISPATCH)
 ├── tests/
 │   ├── test_generic_sum_type.c     # 単体テスト(assert()ベース)
 │   └── test_compile_guarantees.sh  # コンパイル時保証の回帰テスト

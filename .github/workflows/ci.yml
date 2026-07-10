@@ -51,6 +51,9 @@ jobs:
           /tmp/command_demo
           /tmp/resource_demo
           /tmp/threadsafe_dispatch_demo
+          /tmp/internal_command_demo
+          /tmp/protocol_frame_demo
+          /tmp/recipe_param_demo
 
       - name: Build and run unit tests (AddressSanitizer付き)
         run: |
