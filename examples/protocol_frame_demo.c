@@ -33,6 +33,11 @@
  * 使っている。フレーム解釈自体は「今何を受信したか」を判定するだけの
  * 副作用のない処理であるため、ctxを持たないMATCHの方が契約として素直、
  * という設計判断の実例でもある(api_reference.md 早見表を参照)。
+ *
+ * 参考: PALLASER社 レーザーマーカー 通信コマンド仕様書 Ver.2.0
+ *   https://pallaser.co.jp/dwl/mother/R2_0_Communication_Manual.pdf
+ *   (§2 通信仕様。本ファイルは同仕様書のフレーム構造・NGエラー番号・
+ *    チェックサム計算式に着想を得た独自の簡略化例であり、仕様書の転載ではない)
  */
 #include <stdio.h>
 #include <string.h>

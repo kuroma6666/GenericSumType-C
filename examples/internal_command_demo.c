@@ -16,6 +16,11 @@
  * 実際に変更する層を指す。通信のプロトコル的な関心事(送受信フォーマット、
  * NGエラー等)を一切含まない点が、protocol_frame_demo.c(通信処理系)との
  * 責務の違いである。
+ *
+ * 参考: PALLASER社 レーザーマーカー 通信コマンド仕様書 Ver.2.0
+ *   https://pallaser.co.jp/dwl/mother/R2_0_Communication_Manual.pdf
+ *   (§3.6 システム操作。本ファイルは同仕様書の一部コマンド名・役割に
+ *    着想を得た独自の簡略化例であり、仕様書の転載ではない)
  */
 #include <stdio.h>
 #include "generic_sum_type.h"

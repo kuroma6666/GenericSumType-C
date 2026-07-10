@@ -20,6 +20,11 @@
  * という、設定値の永続化そのものを扱う層を指す。実機では不揮発メモリ
  * (フラッシュ/EEPROM等)に対応するが、本デモでは配列によるRAM上の
  * シミュレーションに置き換えている。
+ *
+ * 参考: PALLASER社 レーザーマーカー 通信コマンド仕様書 Ver.2.0
+ *   https://pallaser.co.jp/dwl/mother/R2_0_Communication_Manual.pdf
+ *   (§3.5 ファイル操作。本ファイルは同仕様書の一部コマンド名・役割に
+ *    着想を得た独自の簡略化例であり、仕様書の転載ではない)
  */
 #include <stdio.h>
 #include <string.h>
