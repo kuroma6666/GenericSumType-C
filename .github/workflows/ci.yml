@@ -54,11 +54,14 @@ jobs:
           /tmp/internal_command_demo
           /tmp/protocol_frame_demo
           /tmp/recipe_param_demo
+          /tmp/generic_ctor_demo
 
       - name: Build and run unit tests (AddressSanitizer付き)
         # tests/test_*.c を全て対象にする(ライブラリ本体のtest_generic_sum_type.cに加え、
-        # examples/内部処理系・通信処理系・ROM/RAMパラメータ取得系の3サンプルに対する
-        # ホワイトボックステストも同じ扱いでビルド・実行する)。
+        # examples/内部処理系・通信処理系・ROM/RAMパラメータ取得系の3サンプル、
+        # DEFINE_SUM_NEW_GENERIC(C11以降限定)に対するホワイトボックステストも
+        # 同じ扱いでビルド・実行する。C99マトリクスではtest_sum_new_generic.cが
+        # 自己ガードで中身をスキップする形になる)。
         run: |
           set -e
           for tf in tests/test_*.c; do
@@ -71,6 +74,8 @@ jobs:
       - name: Run compile-time guarantee regression tests
         # generic_sum_type.h の価値の半分は「間違えるとコンパイルが落ちること」
         # (design_spec.md 3節)。ここが壊れていないかを専用スクリプトで検証する。
+        # DEFINE_SUM_NEW_GENERIC関連のケースはSTD=c99のとき自動的にスキップされる
+        # (design_spec.md 4.13節)。
         run: |
           chmod +x tests/test_compile_guarantees.sh
           CC=$CC STD=${{ matrix.std }} tests/test_compile_guarantees.sh

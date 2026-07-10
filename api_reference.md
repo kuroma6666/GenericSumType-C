@@ -13,8 +13,9 @@
 - [6. `DEFINE_SUM_COPY`](#6-define_sum_copy)
 - [7. `SUM_DEFINE_IDENTITY_COPY`](#7-sum_define_identity_copy)
 - [8. `SUM_CTX_LOCK` / `SUM_CTX_UNLOCK`](#8-sum_ctx_lock--sum_ctx_unlock)
-- [9. 内部マクロ(直接呼び出さないもの)](#9-内部マクロ直接呼び出さないもの)
-- [10. 早見表](#10-早見表)
+- [9. `DEFINE_SUM_NEW_GENERIC` / `SUM_NEW`(C11以降限定)](#9-define_sum_new_generic--sum_newc11以降限定)
+- [10. 内部マクロ(直接呼び出さないもの)](#10-内部マクロ直接呼び出さないもの)
+- [11. 早見表](#11-早見表)
 
 ---
 
@@ -220,7 +221,51 @@ SUM_DEFINE_IDENTITY_COPY(MsgNumber_identity_copy, MsgNumber)
 
 ---
 
-## 9. 内部マクロ(直接呼び出さないもの)
+## 9. `DEFINE_SUM_NEW_GENERIC` / `SUM_NEW`(C11以降限定)
+
+```c
+DEFINE_SUM_NEW_GENERIC(NAME, VARIANTS)   // 補助の型・関数を1回だけ生成
+SUM_NEW(NAME, VARIANTS, x)               // 呼び出し側はこの形で使う
+```
+
+C11の`_Generic`を使い、渡した値の**型**だけから`NAME_new_<tag>()`を自動選択する糖衣構文。タグ名(`i`/`s`/`f`等)を呼び出し側が覚えて綴る必要がなくなる。
+
+**`__STDC_VERSION__ >= 201112L`でガードされており、C99ビルドではこの2マクロとも存在しない。** `#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L` で囲って使うこと。
+
+| 生成される識別子 | シグネチャ | 説明 |
+|---|---|---|
+| `NAME_GenericPlaceholder_`(struct) | - | `_Generic`の連想リストの先頭コンマ問題を解決するための内部プレースホルダ型 |
+| `NAME_new_unreachable_` | `NAME NAME_new_unreachable_(struct NAME_GenericPlaceholder_)` | 上記プレースホルダ用の内部関数。通常は選択されない |
+
+**`NAME_new(x)`のような専用マクロは生成できない**(Cのプリプロセッサはマクロ展開結果から新しい`#define`を起こせないため)。そのため呼び出し側は`SUM_NEW(NAME, VARIANTS, x)`という形で、`NAME`と`VARIANTS`を毎回明示する。
+
+```c
+typedef struct { int32_t v; } IntBox;
+typedef struct { const char *v; } StrBox;
+#define IOS_VARIANTS(X, NAME, EXTRA) \
+    X(NAME, EXTRA, i, IntBox)        \
+    X(NAME, EXTRA, s, StrBox)
+
+DEFINE_SUM_TYPE(IntOrStr, IOS_VARIANTS)
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+DEFINE_SUM_NEW_GENERIC(IntOrStr, IOS_VARIANTS)
+#endif
+
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+IntOrStr a = SUM_NEW(IntOrStr, IOS_VARIANTS, ((IntBox){ 42 }));
+IntOrStr b = SUM_NEW(IntOrStr, IOS_VARIANTS, ((StrBox){ "hi" }));
+#endif
+```
+
+**注意点(design_spec.md 4.13節に検証結果を記載):**
+
+- `_Generic`は制御式の型が**完全一致**しないと選択できない(暗黙の型変換に頼れない)。ポインタが指す先のconst有無も別の型として扱われる(`char*`と`const char*`は別キー)。ペイロードを専用structでラップする設計ガイドライン(0節)に従っていれば問題にならない。
+- 2つ以上のvariantが同一のペイロード型を共有していると、`_Generic`の連想リストが重複しコンパイルエラーになる。ただし**`DEFINE_SUM_NEW_GENERIC`単体を呼んだだけでは検出されない**。実際に`SUM_NEW(NAME, VARIANTS, x)`を呼んで`_Generic`が展開された箇所で初めて検出される。
+- このマクロを使うファイルをC99マトリクスのCIジョブに含める場合、ファイル自体を`#if __STDC_VERSION__ >= 201112L`で自己ガードし、C99実行時は代替処理(またはスキップ)をする必要がある。詳細は[`examples/generic_ctor_demo.c`](./examples/generic_ctor_demo.c)を参照。
+
+---
+
+## 10. 内部マクロ(直接呼び出さないもの)
 
 利用者が直接書くことは通常ないが、生成コードの挙動に関わるため参考として記載する。
 
@@ -233,10 +278,11 @@ SUM_DEFINE_IDENTITY_COPY(MsgNumber_identity_copy, MsgNumber)
 | `SUM_DISPATCH_PARAM` / `SUM_DISPATCH_CASE` | `DEFINE_SUM_DISPATCH`が内部で使うアスペクトマクロ |
 | `SUM_DESTROY_PARAM` / `SUM_DESTROY_CASE` | `DEFINE_SUM_DESTROY`が内部で使うアスペクトマクロ |
 | `SUM_COPY_PARAM` / `SUM_COPY_CASE` | `DEFINE_SUM_COPY`が内部で使うアスペクトマクロ |
+| `SUM_GENERIC_ASSOC` | `DEFINE_SUM_NEW_GENERIC`が内部で使うアスペクトマクロ(C11以降限定) |
 
 ---
 
-## 10. 早見表
+## 11. 早見表
 
 | マクロ | 用途 | ハンドラのシグネチャ | ctx | 戻り値 |
 |---|---|---|---|---|
@@ -245,5 +291,6 @@ SUM_DEFINE_IDENTITY_COPY(MsgNumber_identity_copy, MsgNumber)
 | `DEFINE_SUM_DISPATCH` | 副作用を伴う処理 | `void (*)(Type*, CtxType*)` | あり(ロックフック付き) | `void`固定 |
 | `DEFINE_SUM_DESTROY` | リソース解放 | `void (*)(Type*)` | なし | `void`固定 |
 | `DEFINE_SUM_COPY` | ディープコピー | `Type (*)(const Type*)` | なし | `NAME`(コピー結果) |
+| `DEFINE_SUM_NEW_GENERIC` + `SUM_NEW` | 型からコンストラクタを自動選択(C11以降限定) | - | - | `NAME` |
 
-実装例は [`examples/`](./examples) 配下の各デモを参照(`demo.c`, `shape_demo.c`, `command_demo.c`, `resource_demo.c`, `threadsafe_dispatch_demo.c`)。設計判断・既知の制約は [design_spec.md](./design_spec.md) を参照。
+実装例は [`examples/`](./examples) 配下の各デモを参照(`demo.c`, `shape_demo.c`, `command_demo.c`, `resource_demo.c`, `threadsafe_dispatch_demo.c`, `generic_ctor_demo.c`)。設計判断・既知の制約は [design_spec.md](./design_spec.md) を参照。

@@ -230,6 +230,66 @@ EOF
 }
 check_multi_tu
 
+# --- 8. DEFINE_SUM_NEW_GENERIC / SUM_NEW（C11以降限定） ---
+#         _Genericを使うため、C99ビルドではgeneric_sum_type.h内で
+#         マクロ自体がガードされ存在しない扱いになる。STD=c99のときは
+#         このマクロを使うテストコード自体がビルド不能になってしまうため、
+#         意味のある検証ができない。したがってSTD=c99のときはスキップし、
+#         C11/C17のときだけ実行する（design_spec.md 4.13節で検証済みの制約）。
+if [ "$STD" = "c99" ]; then
+    echo "SKIP DEFINE_SUM_NEW_GENERIC関連(STD=c99のため、_Generic自体が利用不可)"
+else
+    # 8a. 無関係な型を渡す: 失敗するべき（defaultを用意していないため）
+    cat > "$TMP/generic_wrong_type.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int v; } IntBox;
+typedef struct { const char *v; } StrBox;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, i, IntBox) X(NAME, EXTRA, s, StrBox)
+DEFINE_SUM_TYPE(T, V)
+DEFINE_SUM_NEW_GENERIC(T, V)
+int main(void) {
+    T t = SUM_NEW(T, V, 42); /* IntBox/StrBoxどちらでもない生のintを渡す誤用 */
+    return t.tag;
+}
+EOF
+    expect_fail "SUM_NEWに無関係な型を渡す" "$TMP/generic_wrong_type.c"
+
+    # 8b. 2つのvariantが同一のペイロード型を共有: 失敗するべき
+    #     （_Genericの連想リストが重複するため、SUM_NEWを実際に呼んで
+    #      _Genericが展開された箇所でコンパイルエラーになる。
+    #      DEFINE_SUM_NEW_GENERIC単体を呼んだだけでは_Generic自体が
+    #      まだ登場しないため検出されない、という点を当初誤解しており
+    #      本テストを書く過程で訂正した。design_spec.md 4.13節参照）
+    cat > "$TMP/generic_dup_type.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int v; } IntBox;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, a, IntBox) X(NAME, EXTRA, b, IntBox)
+DEFINE_SUM_TYPE(T, V)
+DEFINE_SUM_NEW_GENERIC(T, V)
+int main(void) {
+    T t = SUM_NEW(T, V, ((IntBox){1})); /* SUM_NEWを実際に呼んで初めて_Genericが展開される */
+    return t.tag;
+}
+EOF
+    expect_fail "SUM_NEWで2 variantが同一型を共有(型の使い回しガイドライン違反の検出)" "$TMP/generic_dup_type.c"
+
+    # 8c. 正常系: 型ごとに正しいコンストラクタが選択され成功するべき
+    cat > "$TMP/generic_ok.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int v; } IntBox;
+typedef struct { const char *v; } StrBox;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, i, IntBox) X(NAME, EXTRA, s, StrBox)
+DEFINE_SUM_TYPE(T, V)
+DEFINE_SUM_NEW_GENERIC(T, V)
+int main(void) {
+    T a = SUM_NEW(T, V, ((IntBox){ 1 }));
+    T b = SUM_NEW(T, V, ((StrBox){ "x" }));
+    return (a.tag == b.tag) ? 1 : 0;
+}
+EOF
+    expect_pass "SUM_NEWの正常系(型からコンストラクタを自動選択)" "$TMP/generic_ok.c"
+fi
+
 echo
 echo "$pass 件成功 / $fail 件失敗"
 exit "$fail"

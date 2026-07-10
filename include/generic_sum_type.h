@@ -91,6 +91,38 @@
  * どの粒度でロックするか（dispatch呼び出し単位か、もっと粗い単位か）は
  * アプリケーション側の責務であり、本ライブラリはフックの提供にとどめる。
  *
+ * --- DEFINE_SUM_NEW_GENERIC / SUM_NEW（C11以降限定のオプトイン機能）について ---
+ *
+ * C11の _Generic（ジェネリック選択）を使い、渡した値の「型」だけからコンストラクタを
+ * 自動選択する糖衣構文。DEFINE_SUM_TYPEが生成する NAME_new_<tag>() を、タグ名を
+ * 意識せず呼べるようにする。
+ *
+ *   DEFINE_SUM_NEW_GENERIC(MyType, MY_VARIANTS)   // 補助の型・関数を1回だけ生成
+ *   MyType v = SUM_NEW(MyType, MY_VARIANTS, (Type1){ ... });
+ *
+ * 他のDEFINE_SUM_*と違い、NAME_new(x)のような専用マクロは生成できない。Cの
+ * プリプロセッサはマクロ展開結果の中から新しい#defineディレクティブを起こす
+ * 機能を持たないため（実機検証済み。design_spec.md 4.13節）、
+ * DEFINE_SUM_NEW_GENERICが生成できるのは補助の型・関数のみであり、実際の
+ * ディスパッチはNAMEとVARIANTSを毎回明示するSUM_NEWという単一の共通マクロが
+ * 担う。
+ *
+ * 制約（design_spec.md 4.13節に検証結果を記載）:
+ *   - C11以上必須。__STDC_VERSION__ でガードしており、C99ビルドでは
+ *     DEFINE_SUM_NEW_GENERIC / SUM_NEW いずれも定義されない。
+ *   - _Genericは制御式の型が完全一致しないと選択できない（暗黙の型変換に
+ *     頼れない）。ポインタが指す先のconst有無も別の型として扱われる
+ *     （char*とconst char*は別キー）。ペイロードを専用structでラップする
+ *     設計ガイドライン（3節）に従っていれば問題にならない。
+ *   - 2つ以上のvariantが同一のペイロード型を共有していると、_Genericの
+ *     連想リストが重複し、コンパイルエラーになる。ただしこれは
+ *     DEFINE_SUM_NEW_GENERIC単体を呼んだだけでは検出されない。
+ *     DEFINE_SUM_NEW_GENERICは補助の型・関数を生成するだけで_Generic自体を
+ *     まだ展開しないため、実際にSUM_NEW(NAME, VARIANTS, x)を呼んで
+ *     _Genericが展開された箇所で初めて検出される（実機検証で確認済み。
+ *     当初「DEFINE_SUM_NEW_GENERICを呼ぶだけで検出できる」と誤解していたが、
+ *     テスト作成時に実際には検出されないことが分かり訂正した）。
+ *
  * --- 未使用関数の警告について ---
  *
  * DEFINE_SUM_TYPE等が生成する各関数は「利用側が必要なものだけを使う」前提であり、
@@ -241,5 +273,44 @@
 #define SUM_DEFINE_IDENTITY_COPY(FN_NAME, TYPE)                      \
     SUM_MAYBE_UNUSED                                                 \
     static inline TYPE FN_NAME(const TYPE *v) { return *v; }
+
+/* ---- DEFINE_SUM_NEW_GENERIC / SUM_NEW が使うアスペクトマクロ（C11以降限定） ----
+ * ヘッダ冒頭のコメント「DEFINE_SUM_NEW_GENERIC / SUM_NEW について」を参照。
+ * C99ビルドではこのブロック全体が存在しない扱いになる。
+ */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+
+#define SUM_GENERIC_ASSOC(NAME, EXTRA, TAG, TYPE) \
+    , TYPE: NAME##_new_##TAG
+
+/* _Genericの連想リストは末尾コンマを許さない文法のため（実機検証済み）、
+ * VARIANTSからのX-Macro展開は「各エントリが先頭コンマを持つ」形にしている。
+ * リストの先頭にはライブラリ専用のプレースホルダ型を1個だけ手動で置き、
+ * 帳尻を合わせる。このプレースホルダ型はユーザーの型と衝突しない専用の
+ * 匿名でない構造体であり、実際に選択されることは想定していない
+ * （選択された場合は0初期化した値を返すだけで、クラッシュはしない）。
+ */
+#define DEFINE_SUM_NEW_GENERIC(NAME, VARIANTS)                              \
+    struct NAME##_GenericPlaceholder_ { char sum_generic_unused_; };        \
+    SUM_MAYBE_UNUSED                                                        \
+    static inline NAME NAME##_new_unreachable_(                            \
+        struct NAME##_GenericPlaceholder_ sum_generic_unused_arg_) {        \
+        (void)sum_generic_unused_arg_;                                      \
+        NAME sum_generic_zeroed_ = { 0 };                                   \
+        return sum_generic_zeroed_;                                        \
+    }
+
+/* 呼び出し側はこの形で使う: SUM_NEW(NAME, VARIANTS, x)
+ * NAMEとVARIANTSを毎回明示するのは、マクロ展開結果から新しい#defineを
+ * 生成する手段がCのプリプロセッサに存在しないための制約であり、
+ * DEFINE_SUM_TYPE等のように「1回呼べばNAME_new(x)という専用の名前が
+ * 使えるようになる」形にはできない（design_spec.md 4.13節）。
+ */
+#define SUM_NEW(NAME, VARIANTS, x) _Generic((x),                            \
+    struct NAME##_GenericPlaceholder_: NAME##_new_unreachable_              \
+    VARIANTS(SUM_GENERIC_ASSOC, NAME, ())                                   \
+)(x)
+
+#endif /* __STDC_VERSION__ >= 201112L */
 
 #endif /* GENERIC_SUM_TYPE_H */
