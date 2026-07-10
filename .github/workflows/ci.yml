@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-test:
-    name: build-and-test (${{ matrix.cc }})
+    name: build-and-test (${{ matrix.cc }}, -std=${{ matrix.std }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -16,9 +16,14 @@ jobs:
         # design_spec.md で明言している通り、対応コンパイラはGCC/Clangのみ
         # （MSVCは意図的にサポート対象外）。
         cc: [gcc, clang]
+        # C99/C11/C17すべてで実際にビルドが通ることをCIで検証する
+        # （ドキュメントに「C99以降対応」と書くだけでは検証にならない、という教訓から
+        #   3バージョンともマトリクスに含めている）。
+        std: [c99, c11, c17]
+
     env:
       CC: ${{ matrix.cc }}
-      CFLAGS: -std=c11 -pedantic -Wall -Wextra -Werror -Iinclude
+      CFLAGS: -std=${{ matrix.std }} -pedantic -Wall -Wextra -Werror -Iinclude
 
     steps:
       - uses: actions/checkout@v4
@@ -57,4 +62,4 @@ jobs:
         # (design_spec.md 3節)。ここが壊れていないかを専用スクリプトで検証する。
         run: |
           chmod +x tests/test_compile_guarantees.sh
-          CC=$CC tests/test_compile_guarantees.sh
+          CC=$CC STD=${{ matrix.std }} tests/test_compile_guarantees.sh
