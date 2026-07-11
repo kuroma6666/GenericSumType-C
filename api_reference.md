@@ -239,6 +239,8 @@ C11の`_Generic`を使い、渡した値の**型**だけから`NAME_new_<tag>()`
 
 **`NAME_new(x)`のような専用マクロは生成できない**(Cのプリプロセッサはマクロ展開結果から新しい`#define`を起こせないため)。そのため呼び出し側は`SUM_NEW(NAME, VARIANTS, x)`という形で、`NAME`と`VARIANTS`を毎回明示する。
 
+**推奨イディオム: 利用側で1行のショートカットマクロを書く。** ライブラリが`NAME_new(x)`を自動生成することはできないが、利用側が`DEFINE_SUM_NEW_GENERIC`の直後に自分で`#define NAME_new(x) SUM_NEW(NAME, VARIANTS, x)`と1行書くことは制限されない(これは通常のユーザーコードによる`#define`であり、マクロ展開結果から生成されたものではないため、上記の制約に抵触しない)。C99/C11双方で動作確認済み(design_spec.md 8節)。
+
 ```c
 typedef struct { int32_t v; } IntBox;
 typedef struct { const char *v; } StrBox;
@@ -249,11 +251,13 @@ typedef struct { const char *v; } StrBox;
 DEFINE_SUM_TYPE(IntOrStr, IOS_VARIANTS)
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 DEFINE_SUM_NEW_GENERIC(IntOrStr, IOS_VARIANTS)
+/* 推奨イディオム: 呼び出し側でショートカットマクロを1行定義する */
+#define IntOrStr_new(x) SUM_NEW(IntOrStr, IOS_VARIANTS, x)
 #endif
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-IntOrStr a = SUM_NEW(IntOrStr, IOS_VARIANTS, ((IntBox){ 42 }));
-IntOrStr b = SUM_NEW(IntOrStr, IOS_VARIANTS, ((StrBox){ "hi" }));
+IntOrStr a = IntOrStr_new(((IntBox){ 42 }));
+IntOrStr b = IntOrStr_new(((StrBox){ "hi" }));
 #endif
 ```
 
