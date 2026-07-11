@@ -86,7 +86,8 @@ GenericSumType-C/
 │   ├── cbmc_verify_destroy.sh      # 上記ハーネスの3ケースをまとめて実行するスクリプト
 │   └── README.md                   # verify/の使い方(CIには組み込まれていない任意の追加検証)
 ├── .github/workflows/ci.yml       # GitHub Actions(gcc/clang × c99/c11/c17)
-├── design_spec.md                 # 設計仕様書(判断根拠・トレードオフ・既知の制約)
+├── design_spec.md                 # 設計仕様書(判断根拠・トレードオフ・既知の制約。結論のみのリファレンス)
+├── VERIFICATION_LOG.md            # 検証ログ(検証の経緯・訂正履歴・規格条文突き合わせ・バグ記録)
 └── api_reference.md               # APIリファレンス(マクロ一覧・シグネチャ)
 ```
 
@@ -138,7 +139,8 @@ chmod +x cbmc_verify_destroy.sh
 ## ドキュメント
 
 - [api_reference.md](./api_reference.md) — 提供するマクロ・関数のシグネチャ一覧(「何ができるか」を引くためのリファレンス)
-- [design_spec.md](./design_spec.md) — 設計思想、各マクロを採用した判断根拠とトレードオフ、実装していないこと・既知の制約、検証で見つかったバグの記録(「なぜそうなっているか」)
+- [design_spec.md](./design_spec.md) — 設計思想、各マクロを採用した判断根拠とトレードオフ、実装していないこと・既知の制約(「なぜそうなっているか」の結論を引くためのリファレンス)
+- [VERIFICATION_LOG.md](./VERIFICATION_LOG.md) — 検証の経緯・訂正履歴・ISO C規格条文との突き合わせ・見つかったバグの記録(design_spec.mdの結論に至るまでの過程。節番号はdesign_spec.mdに対応)
 
 ## 参考資料
 
