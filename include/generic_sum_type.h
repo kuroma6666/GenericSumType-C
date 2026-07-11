@@ -29,6 +29,10 @@
  *        各ハンドラは「payloadだけ」を受け取る純粋な変換関数を想定している。
  *        RetTypeにvoidを渡すのは非推奨（-pedantic環境でISO C違反の警告が出る。用途としては
  *        DEFINE_SUM_DISPATCHかDEFINE_SUM_DESTROYを使うこと）。
+ *        read-only用途（payloadを書き換えない）で self を const NAME* のまま渡したい場合は
+ *        DEFINE_SUM_MATCH_CONST を使う（ハンドラは Type1 const* を受け取る）。
+ *        DEFINE_SUM_TYPE は可変ゲッター NAME_get_<tag>() に加え、const NAME* から
+ *        呼べる NAME_get_<tag>_const()（Type const* を返す）も生成する。
  *
  *   4. DEFINE_SUM_DISPATCH(MyType, MY_VARIANTS, dispatch_fn_name, CtxType)
  *        -> dispatch_fn_name(MyType *self, CtxType *ctx,
@@ -90,6 +94,19 @@
  * ロックが不要な用途では追加コストはゼロ（no-opはコンパイラが最適化で消す）。
  * どの粒度でロックするか（dispatch呼び出し単位か、もっと粗い単位か）は
  * アプリケーション側の責務であり、本ライブラリはフックの提供にとどめる。
+ *
+ * 【再入（recursive dispatch）によるデッドロックに注意】
+ * ロック区間は SUM_CTX_LOCK(ctx) からハンドラ本体を含む switch 全体を経て
+ * SUM_CTX_UNLOCK(ctx) までを1つの区間とする（ハンドラ実行中もロックを保持し続ける）。
+ * このためハンドラが同一 ctx に対して直接／間接に別の dispatch を呼び返すと、
+ * SUM_CTX_LOCK に非再帰ロック（pthread_mutexのデフォルト等）を差し込んでいる場合は
+ * 自己デッドロックする。回避策は次のいずれか:
+ *   - ハンドラ内で同一 ctx への再 dispatch を行わない（再 dispatch はロック区間の外、
+ *     すなわち呼び出し元のスコープで発行する）。推奨。
+ *   - 再入が避けられない設計では、SUM_CTX_LOCK に再帰対応プリミティブ
+ *     （PTHREAD_MUTEX_RECURSIVE で初期化した mutex 等）を差し込む。
+ * なお self->tag が不正な値でも switch はどの case にも入らず SUM_CTX_UNLOCK に到達するため、
+ * LOCK/UNLOCK の対応は崩れない（ロック解放漏れは起きない）。詳細は design_spec.md 4.8節。
  *
  * --- DEFINE_SUM_NEW_GENERIC / SUM_NEW（C11以降限定のオプトイン機能）について ---
  *
@@ -170,6 +187,18 @@
         return self->tag == NAME##_##TAG ? &self->as.TAG : NULL;     \
     }
 
+/* read-only 版ゲッター。const NAME* から呼べ、payload オブジェクト自体を const 化した
+ * ポインタ（Type const*）を返す（4.14節）。可変ゲッター NAME_get_<tag> と併存する。
+ * 戻り型に west const（const TYPE*）ではなく east const（TYPE const*）を使うのは、
+ * TYPE がポインタ型（例: const char*）のとき west const だと const が指す先に付いて
+ * しまい &self->as.TAG（const NAME* 経由 = Type const*）と型不一致になるため。 */
+#define SUM_GETTER_CONST(NAME, EXTRA, TAG, TYPE)                     \
+    SUM_MAYBE_UNUSED                                                 \
+    static inline TYPE const *NAME##_get_##TAG##_const(             \
+        const NAME *self) {                                          \
+        return self->tag == NAME##_##TAG ? &self->as.TAG : NULL;     \
+    }
+
 #define DEFINE_SUM_TYPE(NAME, VARIANTS)                              \
     typedef enum { VARIANTS(SUM_TAG_ENTRY, NAME, _) } NAME##_tag_t;  \
     typedef struct {                                                  \
@@ -177,7 +206,8 @@
         union { VARIANTS(SUM_UNION_MEMBER, NAME, _) } as;             \
     } NAME;                                                            \
     VARIANTS(SUM_CTOR, NAME, _)                                        \
-    VARIANTS(SUM_GETTER, NAME, _)
+    VARIANTS(SUM_GETTER, NAME, _)                                      \
+    VARIANTS(SUM_GETTER_CONST, NAME, _)
 
 /* ---- DEFINE_SUM_MATCH が使うアスペクトマクロ ---- */
 
@@ -193,6 +223,32 @@
         VARIANTS(SUM_MATCH_PARAM, NAME, RET_TYPE)) {                        \
         switch (self->tag) {                                                \
             VARIANTS(SUM_MATCH_CASE, NAME, RET_TYPE)                        \
+        }                                                                    \
+        SUM_UNREACHABLE();                                                   \
+    }
+
+/* ---- DEFINE_SUM_MATCH_CONST が使うアスペクトマクロ ----
+ * DEFINE_SUM_MATCH の read-only 版。self を const NAME* で受け、各ハンドラも
+ * payload を Type const*（east const）で受け取る。面積計算・分類・整形など
+ * payload を書き換えない純粋な変換を、const NAME* を保持したまま呼びたい場合に使う。
+ * payload を書き換える用途では従来の DEFINE_SUM_MATCH（可変版）を使うこと。
+ * east const を使う理由は SUM_GETTER_CONST と同じ（TYPE がポインタ型でも
+ * payload オブジェクト自体に const を付けるため）。
+ * 網羅性検査・順序取り違え検出は可変版と同一の仕組みで働く（3節）。
+ */
+
+#define SUM_MATCH_CONST_PARAM(NAME, RET_TYPE, TAG, TYPE)             \
+    , RET_TYPE (*NAME##_on_##TAG)(TYPE const *)
+
+#define SUM_MATCH_CONST_CASE(NAME, RET_TYPE, TAG, TYPE)              \
+    case NAME##_##TAG: return NAME##_on_##TAG(&self->as.TAG);
+
+#define DEFINE_SUM_MATCH_CONST(NAME, VARIANTS, MATCH_FN, RET_TYPE)          \
+    SUM_MAYBE_UNUSED                                                        \
+    static inline RET_TYPE MATCH_FN(const NAME *self                       \
+        VARIANTS(SUM_MATCH_CONST_PARAM, NAME, RET_TYPE)) {                  \
+        switch (self->tag) {                                                \
+            VARIANTS(SUM_MATCH_CONST_CASE, NAME, RET_TYPE)                  \
         }                                                                    \
         SUM_UNREACHABLE();                                                   \
     }

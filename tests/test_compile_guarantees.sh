@@ -290,6 +290,44 @@ EOF
     expect_pass "SUM_NEWの正常系(型からコンストラクタを自動選択)" "$TMP/generic_ok.c"
 fi
 
+# --- 9. DEFINE_SUM_MATCH_CONST のハンドラが payload を書き換える: 失敗するべき（4.14節） ---
+#         const 版は payload を Type const* で渡すため、ハンドラ内での書き換えは
+#         read-only object への代入となりコンパイルエラーになる。const 化が
+#         実際に効いていることの回帰確認。C99/C11/C17 いずれでも成立する。
+cat > "$TMP/const_mut.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int a; } PA;
+typedef struct { int b; } PB;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, b, PB)
+DEFINE_SUM_TYPE(T, V)
+DEFINE_SUM_MATCH_CONST(T, V, T_area, int)
+static int on_a(const PA *p) { return p->a; }
+static int on_b(const PB *p) { p->b = 9; return p->b; } /* const payload の書き換え → 失敗すべき */
+int main(void) { T t = T_new_a((PA){1}); return T_area(&t, on_a, on_b); }
+EOF
+expect_fail "DEFINE_SUM_MATCH_CONST のハンドラが payload を書き換える(const違反)" "$TMP/const_mut.c"
+
+# --- 10. const NAME* から const 版 match / getter を呼ぶ: 成功するべき（4.14節） ---
+#         可変版 DEFINE_SUM_MATCH は const NAME* を受け付けない(discards const)が、
+#         const 版はキャストなしで const NAME* から呼べることの回帰確認。
+cat > "$TMP/const_ok.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int a; } PA;
+typedef struct { int b; } PB;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, b, PB)
+DEFINE_SUM_TYPE(T, V)
+DEFINE_SUM_MATCH_CONST(T, V, T_area, int)
+static int on_a(const PA *p) { return p->a; }
+static int on_b(const PB *p) { return p->b; }
+static int use(const T *t) {           /* const T* を保持したまま read-only に扱える */
+    const PA *pa = T_get_a_const(t);
+    (void)pa;
+    return T_area(t, on_a, on_b);
+}
+int main(void) { T t = T_new_a((PA){7}); return use(&t) == 7 ? 0 : 1; }
+EOF
+expect_pass "const NAME* から DEFINE_SUM_MATCH_CONST / getter_const を呼ぶ" "$TMP/const_ok.c"
+
 echo
 echo "$pass 件成功 / $fail 件失敗"
 exit "$fail"

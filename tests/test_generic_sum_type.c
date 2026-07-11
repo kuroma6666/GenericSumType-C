@@ -38,6 +38,7 @@ DEFINE_SUM_MATCH(IntOrStr, IOS_VARIANTS, IntOrStr_to_len, int)
 DEFINE_SUM_DISPATCH(IntOrStr, IOS_VARIANTS, IntOrStr_dispatch, SumCtx)
 DEFINE_SUM_DESTROY(IntOrStr, IOS_VARIANTS, IntOrStr_destroy)
 DEFINE_SUM_COPY(IntOrStr, IOS_VARIANTS, IntOrStr_copy)
+DEFINE_SUM_MATCH_CONST(IntOrStr, IOS_VARIANTS, IntOrStr_to_len_const, int)
 
 /* ============ 1. DEFINE_SUM_TYPE: コンストラクタ・ゲッター ============ */
 static void test_ctor_and_getter(void) {
@@ -127,6 +128,34 @@ static void test_copy_is_identity_for_pod_payload(void) {
     assert(IntOrStr_get_i(&copy)->v == 99);
 }
 
+/* ============ 6. DEFINE_SUM_MATCH_CONST / getter_const: read-only アクセス ============ */
+/* ハンドラは payload を const で受け取る（書き換え不可）。const IntOrStr* からも呼べる。 */
+static int len_i_const(const IntBox *b) { (void)b; return -1; }
+static int len_s_const(const StrBox *b) { return (int)strlen(b->v); }
+
+static int const_total_len(const IntOrStr *self) {
+    /* 引数が const IntOrStr* でも、可変版と違いキャストなしで呼べることが要点 */
+    return IntOrStr_to_len_const(self, len_i_const, len_s_const);
+}
+
+static void test_const_match_and_getter(void) {
+    IntOrStr a = IntOrStr_new_i((IntBox){ .v = 1 });
+    IntOrStr b = IntOrStr_new_s((StrBox){ .v = "abcde" });
+
+    const IntOrStr *pa = &a, *pb = &b;
+    assert(const_total_len(pa) == -1);
+    assert(const_total_len(pb) == 5);
+
+    /* const getter: const IntOrStr* から const payload* を得る */
+    const IntBox *ib = IntOrStr_get_i_const(pa);
+    assert(ib != NULL && ib->v == 1);
+    assert(IntOrStr_get_s_const(pa) == NULL);   /* タグ不一致でNULL */
+
+    const StrBox *sb = IntOrStr_get_s_const(pb);
+    assert(sb != NULL && strcmp(sb->v, "abcde") == 0);
+    assert(IntOrStr_get_i_const(pb) == NULL);
+}
+
 int main(void) {
     printf("generic_sum_type.h 単体テスト\n");
     RUN(test_ctor_and_getter);
@@ -135,6 +164,7 @@ int main(void) {
     RUN(test_destroy_dispatches_per_tag);
     RUN(test_copy_is_deep_for_pointer_payload);
     RUN(test_copy_is_identity_for_pod_payload);
+    RUN(test_const_match_and_getter);
     printf("%d件全て成功\n", tests_run);
     return 0;
 }

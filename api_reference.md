@@ -7,6 +7,7 @@
 - [0. 前提: 型リストの定義規約](#0-前提-型リストの定義規約)
 - [1. `DEFINE_SUM_TYPE`](#1-define_sum_type)
 - [2. `DEFINE_SUM_MATCH`](#2-define_sum_match)
+  - [2.1 `DEFINE_SUM_MATCH_CONST`(read-only 版)](#21-define_sum_match_constread-only-版)
 - [3. `DEFINE_SUM_DISPATCH`](#3-define_sum_dispatch)
 - [4. `DEFINE_SUM_DESTROY`](#4-define_sum_destroy)
 - [5. `SUM_DEFINE_NOOP_DESTROY`](#5-sum_define_noop_destroy)
@@ -56,6 +57,7 @@ DEFINE_SUM_TYPE(NAME, VARIANTS)
 | `NAME` | `typedef struct { NAME_tag_t tag; union { ... } as; } NAME;` | タグ付きunion本体 |
 | `NAME_new_<tag>` | `NAME NAME_new_<tag>(Type v)` | コンストラクタ(variantごとに1個生成) |
 | `NAME_get_<tag>` | `Type *NAME_get_<tag>(NAME *self)` | タグが一致すればアドレス、しなければ`NULL`を返すゲッター |
+| `NAME_get_<tag>_const` | `Type const *NAME_get_<tag>_const(const NAME *self)` | 上記の read-only 版。`const NAME*` から呼べ、`Type const*` を返す(payload を書き換えられない)。可変版と併存(design_spec.md 4.14節) |
 
 ```c
 DEFINE_SUM_TYPE(Shape, SHAPE_VARIANTS)
@@ -91,6 +93,33 @@ double area_rectangle(Rectangle *r) { return r->width * r->height; }
 double area_triangle(Triangle *t) { return t->base * t->height / 2.0; }
 
 double a = Shape_area(&s, area_circle, area_rectangle, area_triangle);
+```
+
+### 2.1 `DEFINE_SUM_MATCH_CONST`(read-only 版)
+
+```c
+DEFINE_SUM_MATCH_CONST(NAME, VARIANTS, MATCH_FN, RET_TYPE)
+```
+
+`DEFINE_SUM_MATCH` の read-only 版。`self` を `const NAME*` で受け、各ハンドラも payload を `Type const*` で受け取る。`const NAME*` を保持したまま面積計算・分類・整形などの純粋変換を呼びたい場合に使う(可変版 `DEFINE_SUM_MATCH` は `const NAME*` を受け付けず `discards const` になる)。payload を書き換える用途では従来の可変版を使うこと。
+
+| 生成される識別子 | シグネチャ |
+|---|---|
+| `MATCH_FN` | `RET_TYPE MATCH_FN(const NAME *self, RET_TYPE (*on_tag1)(Type1 const*), RET_TYPE (*on_tag2)(Type2 const*), ...)` |
+
+- 網羅性検査・順序取り違え検出は可変版と同一の仕組みで働く(design_spec.md 3節)。
+- 戻り型に east const(`Type const*`)を使うのは、`TYPE` がポインタ型(例: `const char*`)でも payload オブジェクト自体に const を付けるため(west const `const Type*` だと指す先に const が付き型不一致になる。design_spec.md 4.14節)。
+
+```c
+DEFINE_SUM_MATCH_CONST(Shape, SHAPE_VARIANTS, Shape_area, double)
+
+double area_circle(const Circle *c) { return 3.14159265358979 * c->radius * c->radius; }
+double area_rectangle(const Rectangle *r) { return r->width * r->height; }
+double area_triangle(const Triangle *t) { return t->base * t->height / 2.0; }
+
+double area_of(const Shape *s) {   /* const Shape* のまま呼べる */
+    return Shape_area(s, area_circle, area_rectangle, area_triangle);
+}
 ```
 
 ---
@@ -292,6 +321,7 @@ IntOrStr b = IntOrStr_new(((StrBox){ "hi" }));
 |---|---|---|---|---|
 | `DEFINE_SUM_TYPE` | 型定義そのもの | - | - | - |
 | `DEFINE_SUM_MATCH` | 値を返す純粋変換 | `RetType (*)(Type*)` | なし | `RetType` |
+| `DEFINE_SUM_MATCH_CONST` | 値を返す純粋変換(read-only) | `RetType (*)(Type const*)` | なし | `RetType` |
 | `DEFINE_SUM_DISPATCH` | 副作用を伴う処理 | `void (*)(Type*, CtxType*)` | あり(ロックフック付き) | `void`固定 |
 | `DEFINE_SUM_DESTROY` | リソース解放 | `void (*)(Type*)` | なし | `void`固定 |
 | `DEFINE_SUM_COPY` | ディープコピー | `Type (*)(const Type*)` | なし | `NAME`(コピー結果) |
