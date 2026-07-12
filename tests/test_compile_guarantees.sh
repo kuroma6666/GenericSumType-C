@@ -328,6 +328,35 @@ int main(void) { T t = T_new_a((PA){7}); return use(&t) == 7 ? 0 : 1; }
 EOF
 expect_pass "const NAME* から DEFINE_SUM_MATCH_CONST / getter_const を呼ぶ" "$TMP/const_ok.c"
 
+# --- 11. DEFINE_EITHER_HELPERS を left/right 以外の tag で使う: 失敗するべき（design_spec.md 2.9節） ---
+#         Either ヘルパは left/right の tag 規約に依存する。別の tag 名で使うと
+#         NAME_left / NAME_right という enum 定数が存在せずコンパイルエラーになり、
+#         「規約違反がそのまま検出される」ことを回帰確認する。C99/C11/C17 共通。
+cat > "$TMP/either_bad_tags.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int a; } PA;
+typedef struct { int b; } PB;
+/* tag が left/right ではなく foo/bar */
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, foo, PA) X(NAME, EXTRA, bar, PB)
+DEFINE_SUM_TYPE(T, V)
+DEFINE_EITHER_HELPERS(T)   /* T_left / T_right が無いので失敗すべき */
+int main(void) { return 0; }
+EOF
+expect_fail "DEFINE_EITHER_HELPERS を left/right 以外の tag で使う(規約違反の検出)" "$TMP/either_bad_tags.c"
+
+# --- 12. DEFINE_EITHER_HELPERS を left/right の tag で使う: 成功するべき（design_spec.md 2.9節） ---
+cat > "$TMP/either_ok.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int code; } Err;
+typedef struct { int val; }  Ok;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, left, Err) X(NAME, EXTRA, right, Ok)
+DEFINE_SUM_TYPE(Result, V)
+DEFINE_EITHER_HELPERS(Result)
+static int use(const Result *r) { return Result_is_left(r) ? 0 : 1; }
+int main(void) { Result r = Result_new_right((Ok){ .val = 1 }); return use(&r); }
+EOF
+expect_pass "DEFINE_EITHER_HELPERS を left/right の tag で使う(正常系)" "$TMP/either_ok.c"
+
 echo
 echo "$pass 件成功 / $fail 件失敗"
 exit "$fail"
