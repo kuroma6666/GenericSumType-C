@@ -115,6 +115,14 @@ C11の`_Generic`を使い、渡した値の**型**だけから`NAME_new_<tag>()`
 
 **運用: C11限定機能をCIに乗せる実務コスト。** ヘッダ側の`#if`ガードだけでは、`SUM_NEW`を実際に呼ぶ利用側ファイル(examples/tests)がC99ビルドで壊れる。対策として、該当ファイルはファイル全体を同じ`__STDC_VERSION__`ガードで分岐させる構成にした(詳細はVERIFICATION_LOG.md 2.8節)。
 
+### 2.9 Either イディオム(`DEFINE_EITHER_HELPERS`)
+
+`Either<L, R>` は variant が `left` / `right` の2つに固定された直和型である。variant 集合が固定であるため、一般の SumType と違って型リストマクロを新たに用意する概念的必要はない(利用側は tag 名を `left` / `right` とした2 variant を書くだけ)。
+
+**設計判断: 専用ジェネレータ(`DEFINE_EITHER(NAME, L, R)` のような1マクロ)ではなく、コア再利用の薄いヘルパにした。** 専用ジェネレータなら1行で書けてエルゴノミクスは良いが、enum・struct・コンストラクタ・ゲッターの生成ロジックを `DEFINE_SUM_TYPE` と別に持つことになり、コアの変更(例: `SUM_MAYBE_UNUSED` の付与方針変更、east const 化のような修正)を二重に追従する保守コストが生じる。本ライブラリは保守性・変更容易性を重視するため、`DEFINE_SUM_TYPE` をそのまま使い、Either 固有なのは「`left`/`right` という tag 規約」と「`is_left`/`is_right` の述語」だけに絞った(`DEFINE_EITHER_HELPERS`)。fold は `DEFINE_SUM_MATCH_CONST`、取り出しは既存の const ゲッターで賄えるため、新設は述語のみで足りる。
+
+**制約:** L と R が同一型だと fold ハンドラの左右取り違え検出が効かない(3節の既知の限界がそのまま該当。専用 struct でラップして別型にする)。`DEFINE_EITHER_HELPERS` は `left`/`right` の tag 規約に依存し、違う tag 名に使うと `NAME_left`/`NAME_right` が存在せずコンパイルエラーになる(規約違反がそのまま検出される)。実例は `examples/either_demo.c`、単体テストは `test_generic_sum_type.c` のケース7。
+
 ## 3. 網羅性検査の仕組みと限界
 
 生成される `match_fn_name` / `dispatch_fn_name` の引数リストは `VARIANTS` から自動生成されるため、引数の個数は「その時点でのvariant数」と常に一致する。したがって:

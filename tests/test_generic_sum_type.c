@@ -40,6 +40,15 @@ DEFINE_SUM_DESTROY(IntOrStr, IOS_VARIANTS, IntOrStr_destroy)
 DEFINE_SUM_COPY(IntOrStr, IOS_VARIANTS, IntOrStr_copy)
 DEFINE_SUM_MATCH_CONST(IntOrStr, IOS_VARIANTS, IntOrStr_to_len_const, int)
 
+/* Either イディオム(left/right の2 variant + DEFINE_EITHER_HELPERS)の検証用 */
+typedef struct { int code; } ELeft;
+typedef struct { int val; }  ERight;
+#define EITHER_VARIANTS(X, NAME, EXTRA) \
+    X(NAME, EXTRA, left,  ELeft)        \
+    X(NAME, EXTRA, right, ERight)
+DEFINE_SUM_TYPE(MyEither, EITHER_VARIANTS)
+DEFINE_EITHER_HELPERS(MyEither)
+
 /* ============ 1. DEFINE_SUM_TYPE: コンストラクタ・ゲッター ============ */
 static void test_ctor_and_getter(void) {
     IntOrStr a = IntOrStr_new_i((IntBox){ .v = 42 });
@@ -156,6 +165,20 @@ static void test_const_match_and_getter(void) {
     assert(IntOrStr_get_i_const(pb) == NULL);
 }
 
+/* ============ 7. DEFINE_EITHER_HELPERS: left/right 述語 ============ */
+static void test_either_helpers(void) {
+    MyEither l = MyEither_new_left((ELeft){ .code = 7 });
+    MyEither r = MyEither_new_right((ERight){ .val = 9 });
+
+    assert(MyEither_is_left(&l)  && !MyEither_is_right(&l));
+    assert(MyEither_is_right(&r) && !MyEither_is_left(&r));
+
+    /* 取り出しは既存の const ゲッターをそのまま使う */
+    assert(MyEither_get_left_const(&l)->code == 7);
+    assert(MyEither_get_right_const(&r)->val == 9);
+    assert(MyEither_get_right_const(&l) == NULL); /* 左なので右取り出しはNULL */
+}
+
 int main(void) {
     printf("generic_sum_type.h 単体テスト\n");
     RUN(test_ctor_and_getter);
@@ -165,6 +188,7 @@ int main(void) {
     RUN(test_copy_is_deep_for_pointer_payload);
     RUN(test_copy_is_identity_for_pod_payload);
     RUN(test_const_match_and_getter);
+    RUN(test_either_helpers);
     printf("%d件全て成功\n", tests_run);
     return 0;
 }

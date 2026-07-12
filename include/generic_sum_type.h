@@ -209,6 +209,25 @@
     VARIANTS(SUM_GETTER, NAME, _)                                      \
     VARIANTS(SUM_GETTER_CONST, NAME, _)
 
+/* ---- Either イディオム用ヘルパ ----
+ * left / right の2 variant を持つ SumType（Either 相当）向けの述語を生成する。
+ * DEFINE_SUM_TYPE で tag 名を left / right として定義したうえで本マクロを呼ぶ。
+ * Either の使い方: 構築は NAME_new_left / NAME_new_right、取り出しは
+ * NAME_get_left / NAME_get_right（read-only は _const 版）、左右の畳み込み(fold)は
+ * DEFINE_SUM_MATCH_CONST（左右2ハンドラ）、そして「今どちらか」の述語が本マクロ。
+ * left/right 以外の tag 名で定義した SumType に本マクロを使うと、NAME_left /
+ * NAME_right という enum 定数が存在せずコンパイルエラーになる（規約違反が
+ * そのまま検出される）。 */
+#define DEFINE_EITHER_HELPERS(NAME)                                 \
+    SUM_MAYBE_UNUSED                                                \
+    static inline int NAME##_is_left(const NAME *self) {           \
+        return self->tag == NAME##_left;                           \
+    }                                                               \
+    SUM_MAYBE_UNUSED                                                \
+    static inline int NAME##_is_right(const NAME *self) {          \
+        return self->tag == NAME##_right;                          \
+    }
+
 /* ---- DEFINE_SUM_MATCH が使うアスペクトマクロ ---- */
 
 #define SUM_MATCH_PARAM(NAME, RET_TYPE, TAG, TYPE)                   \

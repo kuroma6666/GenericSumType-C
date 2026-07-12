@@ -8,6 +8,7 @@
 - [1. `DEFINE_SUM_TYPE`](#1-define_sum_type)
 - [2. `DEFINE_SUM_MATCH`](#2-define_sum_match)
   - [2.1 `DEFINE_SUM_MATCH_CONST`(read-only 版)](#21-define_sum_match_constread-only-版)
+  - [2.2 Either イディオム(`DEFINE_EITHER_HELPERS`)](#22-either-イディオムdefine_either_helpers)
 - [3. `DEFINE_SUM_DISPATCH`](#3-define_sum_dispatch)
 - [4. `DEFINE_SUM_DESTROY`](#4-define_sum_destroy)
 - [5. `SUM_DEFINE_NOOP_DESTROY`](#5-sum_define_noop_destroy)
@@ -120,6 +121,46 @@ double area_triangle(const Triangle *t) { return t->base * t->height / 2.0; }
 double area_of(const Shape *s) {   /* const Shape* のまま呼べる */
     return Shape_area(s, area_circle, area_rectangle, area_triangle);
 }
+```
+
+
+---
+
+## 2.2 Either イディオム(`DEFINE_EITHER_HELPERS`)
+
+`Either<L, R>`(Rust の `Result`、関数型の Either 相当)は「`left` か `right` の2択」に固定された直和型なので、`DEFINE_SUM_TYPE` の tag 名を `left` / `right` にするだけで表現できる。`DEFINE_EITHER_HELPERS(NAME)` は、その規約に乗った述語を生成する薄いヘルパ。
+
+```c
+DEFINE_EITHER_HELPERS(NAME)   /* DEFINE_SUM_TYPE(左右2 variant) の後に呼ぶ */
+```
+
+| 生成される識別子 | シグネチャ |
+|---|---|
+| `NAME_is_left`  | `int NAME_is_left(const NAME *self)` |
+| `NAME_is_right` | `int NAME_is_right(const NAME *self)` |
+
+Either の各操作は既存 API の組み合わせで完結する。
+
+| 操作 | 使うもの |
+|---|---|
+| 構築 | `NAME_new_left(L)` / `NAME_new_right(R)`(`DEFINE_SUM_TYPE`) |
+| 述語 | `NAME_is_left` / `NAME_is_right`(`DEFINE_EITHER_HELPERS`) |
+| 取り出し | `NAME_get_left(_const)` / `NAME_get_right(_const)`(`DEFINE_SUM_TYPE`) |
+| 畳み込み(fold) | `DEFINE_SUM_MATCH_CONST` の左右2ハンドラ |
+
+- `left`/`right` 以外の tag 名の SumType に `DEFINE_EITHER_HELPERS` を使うと、`NAME_left` / `NAME_right` という enum 定数が無くコンパイルエラーになる(規約違反がそのまま検出される)。
+- **L と R は別の型にする**(専用 struct でラップ)。同一型だと fold ハンドラの左右取り違え検出が効かない(design_spec.md 3節)。データを持たない Left/Right にはダミー struct を使う(4.4節)。
+- 実例は [`examples/either_demo.c`](./examples/either_demo.c)。
+
+```c
+typedef struct { int code; const char *msg; } Err;  /* Left  */
+typedef struct { int value; }                 Ok;   /* Right */
+#define RESULT_EITHER(X, NAME, EXTRA) \
+    X(NAME, EXTRA, left,  Err)        \
+    X(NAME, EXTRA, right, Ok)
+DEFINE_SUM_TYPE(Result, RESULT_EITHER)
+DEFINE_EITHER_HELPERS(Result)
+DEFINE_SUM_MATCH_CONST(Result, RESULT_EITHER, Result_fold, int)
 ```
 
 ---

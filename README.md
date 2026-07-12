@@ -65,6 +65,7 @@ GenericSumType-C/
 │   ├── demo.c                    # 基本例(int/str/float)
 │   ├── shape_demo.c               # 図形の面積計算・表示(DEFINE_SUM_MATCH複数定義)
 │   ├── const_view_demo.c          # const版read-only検査(DEFINE_SUM_MATCH_CONST/get_<tag>_const)
+│   ├── either_demo.c             # Eitherイディオム(left/right + DEFINE_EITHER_HELPERS)
 │   ├── command_demo.c             # コマンドディスパッチ(DEFINE_SUM_DISPATCH)
 │   ├── resource_demo.c            # ポインタ資源の解放/コピー(DEFINE_SUM_DESTROY/COPY)
 │   ├── threadsafe_dispatch_demo.c # pthreadでのロックフック検証
