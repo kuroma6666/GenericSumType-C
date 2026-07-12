@@ -9,6 +9,7 @@
 - [2. `DEFINE_SUM_MATCH`](#2-define_sum_match)
   - [2.1 `DEFINE_SUM_MATCH_CONST`(read-only 版)](#21-define_sum_match_constread-only-版)
   - [2.2 Either イディオム(`DEFINE_EITHER_HELPERS`)](#22-either-イディオムdefine_either_helpers)
+  - [2.3 Result イディオム(`DEFINE_RESULT_HELPERS`)](#23-result-イディオムdefine_result_helpers)
 - [3. `DEFINE_SUM_DISPATCH`](#3-define_sum_dispatch)
 - [4. `DEFINE_SUM_DESTROY`](#4-define_sum_destroy)
 - [5. `SUM_DEFINE_NOOP_DESTROY`](#5-sum_define_noop_destroy)
@@ -162,6 +163,31 @@ DEFINE_SUM_TYPE(Result, RESULT_EITHER)
 DEFINE_EITHER_HELPERS(Result)
 DEFINE_SUM_MATCH_CONST(Result, RESULT_EITHER, Result_fold, int)
 ```
+
+
+---
+
+## 2.3 Result イディオム(`DEFINE_RESULT_HELPERS`)
+
+`Result<T, E>`(Rust の `Result`)は Either の `ok` / `err` 版。tag 名を `ok` / `err` にした2 variant を `DEFINE_SUM_TYPE` で定義し、`DEFINE_RESULT_HELPERS(NAME)` で述語を生やす。
+
+| 生成される識別子 | シグネチャ |
+|---|---|
+| `NAME_is_ok`  | `int NAME_is_ok(const NAME *self)` |
+| `NAME_is_err` | `int NAME_is_err(const NAME *self)` |
+
+| 操作 | 使うもの |
+|---|---|
+| 構築 | `NAME_new_ok(T)` / `NAME_new_err(E)` |
+| 述語 | `NAME_is_ok` / `NAME_is_err` |
+| 取り出し | `NAME_get_ok(_const)` / `NAME_get_err(_const)` |
+| 畳み込み(fold) | `DEFINE_SUM_MATCH_CONST` の ok/err 2ハンドラ |
+| unwrap_or 等 | 利用側で手書き（`T` 型を知る必要があるためヘルパ化しない） |
+
+- **C での限界(ROP):** `map: Result<T,E> → Result<U,E>` / `and_then: T → Result<U,E>` / `map_err: E → F` のように **payload 型が変わる**関数合成は、変換先が別の具体 Result 型になり C では汎用化できない(design_spec.md 2.10節)。同型変換(`T → Result<T,E>`)や目標型を明示した手書きは可能。
+- `ok`/`err` 以外の tag 名に使うと `NAME_ok`/`NAME_err` が無くコンパイルエラー(規約違反の検出)。
+- **T と E は別の型にする**(専用 struct)。同一型だと fold の取り違え検出が効かない(3節)。
+- 実例は [`examples/result_demo.c`](./examples/result_demo.c)。
 
 ---
 

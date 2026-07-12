@@ -357,6 +357,31 @@ int main(void) { Result r = Result_new_right((Ok){ .val = 1 }); return use(&r); 
 EOF
 expect_pass "DEFINE_EITHER_HELPERS を left/right の tag で使う(正常系)" "$TMP/either_ok.c"
 
+# --- 13. DEFINE_RESULT_HELPERS を ok/err 以外の tag で使う: 失敗するべき（design_spec.md 2.10節） ---
+cat > "$TMP/result_bad_tags.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int a; } PA;
+typedef struct { int b; } PB;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, foo, PA) X(NAME, EXTRA, bar, PB)
+DEFINE_SUM_TYPE(T, V)
+DEFINE_RESULT_HELPERS(T)   /* T_ok / T_err が無いので失敗すべき */
+int main(void) { return 0; }
+EOF
+expect_fail "DEFINE_RESULT_HELPERS を ok/err 以外の tag で使う(規約違反の検出)" "$TMP/result_bad_tags.c"
+
+# --- 14. DEFINE_RESULT_HELPERS を ok/err の tag で使う: 成功するべき（design_spec.md 2.10節） ---
+cat > "$TMP/result_ok.c" << 'EOF'
+#include "generic_sum_type.h"
+typedef struct { int v; }    Ok;
+typedef struct { int code; } Err;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, ok, Ok) X(NAME, EXTRA, err, Err)
+DEFINE_SUM_TYPE(Res, V)
+DEFINE_RESULT_HELPERS(Res)
+static int use(const Res *r) { return Res_is_ok(r) ? 0 : 1; }
+int main(void) { Res r = Res_new_ok((Ok){ .v = 1 }); return use(&r); }
+EOF
+expect_pass "DEFINE_RESULT_HELPERS を ok/err の tag で使う(正常系)" "$TMP/result_ok.c"
+
 echo
 echo "$pass 件成功 / $fail 件失敗"
 exit "$fail"

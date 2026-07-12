@@ -228,6 +228,25 @@
         return self->tag == NAME##_right;                          \
     }
 
+/* ---- Result イディオム用ヘルパ ----
+ * ok / err の2 variant を持つ SumType（Result<T,E> 相当）向けの述語を生成する。
+ * Either（left/right）の ok/err 版。DEFINE_SUM_TYPE で tag 名を ok / err として
+ * 定義したうえで本マクロを呼ぶ。構築は NAME_new_ok / NAME_new_err、取り出しは
+ * NAME_get_ok / NAME_get_err（read-only は _const 版）、fold は
+ * DEFINE_SUM_MATCH_CONST（ok/err 2ハンドラ）。
+ * 注意: map / and_then のような「payload 型が変わる」関数合成(ROP)は、変換先が
+ * 別の具体 Result 型になるため C では汎用化できない（design_spec 2.10節）。
+ * 同型変換や、目標型を明示した手書きの合成は可能。 */
+#define DEFINE_RESULT_HELPERS(NAME)                                 \
+    SUM_MAYBE_UNUSED                                                \
+    static inline int NAME##_is_ok(const NAME *self) {             \
+        return self->tag == NAME##_ok;                             \
+    }                                                               \
+    SUM_MAYBE_UNUSED                                                \
+    static inline int NAME##_is_err(const NAME *self) {            \
+        return self->tag == NAME##_err;                            \
+    }
+
 /* ---- DEFINE_SUM_MATCH が使うアスペクトマクロ ---- */
 
 #define SUM_MATCH_PARAM(NAME, RET_TYPE, TAG, TYPE)                   \

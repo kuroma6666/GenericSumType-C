@@ -123,6 +123,12 @@ C11の`_Generic`を使い、渡した値の**型**だけから`NAME_new_<tag>()`
 
 **制約:** L と R が同一型だと fold ハンドラの左右取り違え検出が効かない(3節の既知の限界がそのまま該当。専用 struct でラップして別型にする)。`DEFINE_EITHER_HELPERS` は `left`/`right` の tag 規約に依存し、違う tag 名に使うと `NAME_left`/`NAME_right` が存在せずコンパイルエラーになる(規約違反がそのまま検出される)。実例は `examples/either_demo.c`、単体テストは `test_generic_sum_type.c` のケース7。
 
+### 2.10 Result イディオム(`DEFINE_RESULT_HELPERS`)と ROP の限界
+
+`Result<T, E>` は Either の `ok`/`err` 版であり、2.9節と同じ「コア再利用の薄いヘルパ」方針で `DEFINE_RESULT_HELPERS`(`is_ok`/`is_err`)を提供する。構築・取り出し・fold は既存 API(`DEFINE_SUM_TYPE` のコンストラクタ/ゲッター、`DEFINE_SUM_MATCH_CONST`)で賄えるため、新設は述語のみ。`unwrap_or` は `T` 型を知る必要があるため汎用ヘルパにはせず、利用側で1行書く(実例 `examples/result_demo.c`)。
+
+**重要な限界(Railway Oriented Programming が汎用化できない):** Rust/F# の `map` / `and_then` / `map_err` のように **payload 型が変わる**関数合成は、C では汎用に書けない。理由は、`map: Result<T,E> → Result<U,E>` の変換先 `Result<U,E>` が `Result<T,E>` とは別の具体型(別 typedef)になるが、C にはパラメトリック多相も戻り値型推論も無く、マクロは呼び出し側で目標型を生成できない(`#define` をマクロ展開から起こせない制約=4.13節と同根)ため。したがって書けるのは (a) 同型変換(`T → Result<T,E>`。`result_demo.c` の `and_then` がこれ)、(b) 型を変える段ごとに目標の `Result` 型を明示して手書きする合成、のいずれか。流れるようなチェーンは言語機能の制約でそのままは再現できない、というのが本ライブラリ(および C 一般)のスコープ判断である。この点は「値としてのエラー表現(直和型・網羅 match・述語・fold)は素直に書けるが、関数“合成”は言語特性に依存する」という一般論の一例でもある。
+
 ## 3. 網羅性検査の仕組みと限界
 
 生成される `match_fn_name` / `dispatch_fn_name` の引数リストは `VARIANTS` から自動生成されるため、引数の個数は「その時点でのvariant数」と常に一致する。したがって:

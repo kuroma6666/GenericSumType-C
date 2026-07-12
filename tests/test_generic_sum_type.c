@@ -49,6 +49,15 @@ typedef struct { int val; }  ERight;
 DEFINE_SUM_TYPE(MyEither, EITHER_VARIANTS)
 DEFINE_EITHER_HELPERS(MyEither)
 
+/* Result イディオム(ok/err の2 variant + DEFINE_RESULT_HELPERS)の検証用 */
+typedef struct { int value; } ROk;
+typedef struct { int code; }  RErr;
+#define RESULT_VARIANTS(X, NAME, EXTRA) \
+    X(NAME, EXTRA, ok,  ROk)            \
+    X(NAME, EXTRA, err, RErr)
+DEFINE_SUM_TYPE(MyResult, RESULT_VARIANTS)
+DEFINE_RESULT_HELPERS(MyResult)
+
 /* ============ 1. DEFINE_SUM_TYPE: コンストラクタ・ゲッター ============ */
 static void test_ctor_and_getter(void) {
     IntOrStr a = IntOrStr_new_i((IntBox){ .v = 42 });
@@ -179,6 +188,19 @@ static void test_either_helpers(void) {
     assert(MyEither_get_right_const(&l) == NULL); /* 左なので右取り出しはNULL */
 }
 
+/* ============ 8. DEFINE_RESULT_HELPERS: ok/err 述語 ============ */
+static void test_result_helpers(void) {
+    MyResult ok  = MyResult_new_ok((ROk){ .value = 5 });
+    MyResult err = MyResult_new_err((RErr){ .code = 42 });
+
+    assert(MyResult_is_ok(&ok)   && !MyResult_is_err(&ok));
+    assert(MyResult_is_err(&err) && !MyResult_is_ok(&err));
+
+    assert(MyResult_get_ok_const(&ok)->value == 5);
+    assert(MyResult_get_err_const(&err)->code == 42);
+    assert(MyResult_get_ok_const(&err) == NULL);
+}
+
 int main(void) {
     printf("generic_sum_type.h 単体テスト\n");
     RUN(test_ctor_and_getter);
@@ -189,6 +211,7 @@ int main(void) {
     RUN(test_copy_is_identity_for_pod_payload);
     RUN(test_const_match_and_getter);
     RUN(test_either_helpers);
+    RUN(test_result_helpers);
     printf("%d件全て成功\n", tests_run);
     return 0;
 }
