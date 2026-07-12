@@ -55,6 +55,9 @@ jobs:
           /tmp/protocol_frame_demo
           /tmp/recipe_param_demo
           /tmp/generic_ctor_demo
+          /tmp/const_view_demo
+          /tmp/either_demo
+          /tmp/result_demo
 
       - name: Build and run unit tests (AddressSanitizer付き)
         # tests/test_*.c を全て対象にする(ライブラリ本体のtest_generic_sum_type.cに加え、

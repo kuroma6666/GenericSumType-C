@@ -1,59 +1,75 @@
-#define _POSIX_C_SOURCE 200809L /* strdup() はPOSIX拡張でありISO Cの一部ではないため必要 */
+/*
+ * ログ収集レコードの解放とディープコピー（所有権のある可変長ペイロード）
+ *
+ * 【要件】
+ *   ログ収集器のレコードは「テキストログ（heap 確保した文字列を所有）」と
+ *   「数値メトリクス（POD、所有権なし）」が混在する。レコードを破棄するときは
+ *   所有する heap を確実に解放し、複製するときはテキストをディープコピーして
+ *   別々に破棄できるようにしたい。リーク・二重解放を起こさないこと。
+ *
+ * 【仕様】
+ *   - LogRecord は text（char* を所有）/ number（int の POD）のいずれか。
+ *   - LogRecord_destroy(): variant ごとに後始末（text は free、number は no-op）。
+ *   - LogRecord_copy():    variant ごとに複製（text は strdup、number は値コピー）。
+ *   - 破棄・複製とも網羅性検査付き（variant 追加時にハンドラ追加を強制）。
+ *
+ * 【実装方針】
+ *   - DEFINE_SUM_DESTROY / DEFINE_SUM_COPY を使用。
+ *   - 資源を持たない number には SUM_DEFINE_NOOP_DESTROY / SUM_DEFINE_IDENTITY_COPY。
+ *   - AddressSanitizer 付きでリーク・二重解放がないことを確認する。
+ *
+ * 仕様の詳細: examples/specs/log_record.md
+ */
+#define _POSIX_C_SOURCE 200809L /* strdup は POSIX 拡張 */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "generic_sum_type.h"
 
-/* --- variantごとのpayload --- */
-typedef struct { char *str; } MsgText;    /* heap資源を所有するvariant */
-typedef struct { int value; }  MsgNumber; /* POD（資源を持たない）variant */
+typedef struct { char *msg; } LogText;   /* heap を所有 */
+typedef struct { int value; } LogMetric; /* POD */
 
-#define MESSAGE_VARIANTS(X, NAME, EXTRA) \
-    X(NAME, EXTRA, text,   MsgText)      \
-    X(NAME, EXTRA, number, MsgNumber)
+#define LOG_RECORD(X, NAME, EXTRA) \
+    X(NAME, EXTRA, text,   LogText)      \
+    X(NAME, EXTRA, number, LogMetric)
 
-DEFINE_SUM_TYPE(Message, MESSAGE_VARIANTS)
-DEFINE_SUM_DESTROY(Message, MESSAGE_VARIANTS, Message_destroy)
-DEFINE_SUM_COPY(Message, MESSAGE_VARIANTS, Message_copy)
+DEFINE_SUM_TYPE(LogRecord, LOG_RECORD)
+DEFINE_SUM_DESTROY(LogRecord, LOG_RECORD, LogRecord_destroy)
+DEFINE_SUM_COPY(LogRecord, LOG_RECORD, LogRecord_copy)
 
-/* --- destroyハンドラ --- */
-static void destroy_text(MsgText *t) {
-    printf("  free(%p) \"%s\"\n", (void *)t->str, t->str);
-    free(t->str);
-    t->str = NULL;
+static void destroy_text(LogText *t) {
+    printf("  free(%p) \"%s\"\n", (void *)t->msg, t->msg);
+    free(t->msg);
+    t->msg = NULL;
 }
-SUM_DEFINE_NOOP_DESTROY(destroy_number, MsgNumber) /* 資源を持たないのでno-opでよい */
+SUM_DEFINE_NOOP_DESTROY(destroy_number, LogMetric)
 
-/* --- copyハンドラ --- */
-static MsgText copy_text(const MsgText *t) {
-    char *dup = strdup(t->str);
-    printf("  strdup: %p (元) -> %p (複製)\n", (void *)t->str, (void *)dup);
-    return (MsgText){ .str = dup };
+static LogText copy_text(const LogText *t) {
+    char *dup = strdup(t->msg);
+    printf("  strdup: %p -> %p\n", (const void *)t->msg, (void *)dup);
+    return (LogText){ .msg = dup };
 }
-SUM_DEFINE_IDENTITY_COPY(copy_number, MsgNumber) /* 値そのものを複製すればよい */
+SUM_DEFINE_IDENTITY_COPY(copy_number, LogMetric)
 
 int main(void) {
-    printf("--- Textバリアント: ディープコピーの確認 ---\n");
-    Message original = Message_new_text((MsgText){ .str = strdup("hello") });
-    Message copy = Message_copy(&original, copy_text, copy_number);
+    printf("--- text レコード: ディープコピー ---\n");
+    LogRecord original = LogRecord_new_text((LogText){ .msg = strdup("link down") });
+    LogRecord copy = LogRecord_copy(&original, copy_text, copy_number);
 
-    MsgText *ot = Message_get_text(&original);
-    MsgText *ct = Message_get_text(&copy);
-    printf("original.str=%p copy.str=%p -> %s\n",
-           (void *)ot->str, (void *)ct->str,
-           ot->str != ct->str ? "別アドレス(ディープコピー成功)" : "同一アドレス(バグ)");
+    LogText *o = LogRecord_get_text(&original);
+    LogText *c = LogRecord_get_text(&copy);
+    printf("original=%p copy=%p -> %s\n", (void *)o->msg, (void *)c->msg,
+           o->msg != c->msg ? "別アドレス(ディープコピー成功)" : "同一(バグ)");
 
-    Message_destroy(&original, destroy_text, destroy_number);
-    Message_destroy(&copy, destroy_text, destroy_number);
+    LogRecord_destroy(&original, destroy_text, destroy_number);
+    LogRecord_destroy(&copy, destroy_text, destroy_number);
 
-    printf("--- Numberバリアント: identity copyの確認 ---\n");
-    Message n = Message_new_number((MsgNumber){ .value = 42 });
-    Message n_copy = Message_copy(&n, copy_text, copy_number);
-    printf("number original=%d copy=%d\n",
-           Message_get_number(&n)->value, Message_get_number(&n_copy)->value);
-
-    Message_destroy(&n, destroy_text, destroy_number);
-    Message_destroy(&n_copy, destroy_text, destroy_number);
-
+    printf("--- number レコード: identity copy ---\n");
+    LogRecord n = LogRecord_new_number((LogMetric){ .value = 42 });
+    LogRecord n_copy = LogRecord_copy(&n, copy_text, copy_number);
+    printf("metric original=%d copy=%d\n",
+           LogRecord_get_number(&n)->value, LogRecord_get_number(&n_copy)->value);
+    LogRecord_destroy(&n, destroy_text, destroy_number);
+    LogRecord_destroy(&n_copy, destroy_text, destroy_number);
     return 0;
 }

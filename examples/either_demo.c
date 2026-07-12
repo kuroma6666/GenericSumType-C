@@ -1,53 +1,52 @@
 /*
- * Either イディオムの使用例。
+ * キャッシュ参照結果 Hit/Miss（エラーではない対等な二分岐の Either）
  *
- * Either<L, R>（Rust の Result、関数型の Either に相当）は「left か right の
- * ちょうど2択」に固定された直和型なので、既存の DEFINE_SUM_TYPE をそのまま使い、
- * tag 名を left / right にするだけで表現できる。加えて DEFINE_EITHER_HELPERS で
- * is_left / is_right の述語が生える。
+ * 【要件】
+ *   キャッシュ参照は「ヒット（値がある）」か「ミス（無いのでフェッチが要る）」の
+ *   二択。これは失敗/成功ではなく対等な二分岐なので、Result ではなく
+ *   Either<Miss, Hit> で表したい（left=Miss, right=Hit）。
  *
- *   構築  : NAME_new_left / NAME_new_right
- *   述語  : NAME_is_left / NAME_is_right          (DEFINE_EITHER_HELPERS)
- *   取り出し: NAME_get_left / NAME_get_right (+_const)  (DEFINE_SUM_TYPE が生成)
- *   畳み込み: DEFINE_SUM_MATCH_CONST の左右2ハンドラ
+ * 【仕様】
+ *   - Lookup は left=miss（要フェッチのキーを持つ）/ right=hit（値を持つ）。
+ *   - is_left/is_right で分岐。fold で「ヒットなら値、ミスなら別処理」に畳み込む。
  *
- * ビルド: gcc -std=c11 -pedantic -Wall -Wextra -Werror -Iinclude examples/either_demo.c -o either_demo
+ * 【実装方針】
+ *   - DEFINE_SUM_TYPE(tag=left/right) + DEFINE_EITHER_HELPERS（is_left/is_right）。
+ *   - fold は DEFINE_SUM_MATCH_CONST の左右2ハンドラ、取り出しは const ゲッター。
+ *   - L と R を別 struct にすることで左右ハンドラ取り違えを型で検出（design_spec 3節）。
+ *
+ * 仕様の詳細: examples/specs/cache_lookup.md
  */
 #include <stdio.h>
 #include "generic_sum_type.h"
 
-/* payload は専用struct（3節ガイドライン: L と R が別型なら左右取り違えを検出できる） */
-typedef struct { int code; const char *msg; } Err;  /* Left  */
-typedef struct { int value; }                 Ok;   /* Right */
+typedef struct { int key; }   Miss;  /* Left : 要フェッチのキー */
+typedef struct { int value; } Hit;   /* Right: キャッシュ済みの値 */
 
-#define RESULT_EITHER(X, NAME, EXTRA) \
-    X(NAME, EXTRA, left,  Err)        \
-    X(NAME, EXTRA, right, Ok)
+#define LOOKUP(X, NAME, EXTRA)   \
+    X(NAME, EXTRA, left,  Miss)  \
+    X(NAME, EXTRA, right, Hit)
 
-DEFINE_SUM_TYPE(Result, RESULT_EITHER)
-DEFINE_EITHER_HELPERS(Result)
-/* fold: 左右どちらの場合も1つの値へ畳み込む read-only な変換 */
-DEFINE_SUM_MATCH_CONST(Result, RESULT_EITHER, Result_fold, int)
+DEFINE_SUM_TYPE(Lookup, LOOKUP)
+DEFINE_EITHER_HELPERS(Lookup)
+DEFINE_SUM_MATCH_CONST(Lookup, LOOKUP, Lookup_value_or_fetch, int)
 
-static int on_err(const Err *e) { printf("  Left  Err(%d, \"%s\")\n", e->code, e->msg); return -e->code; }
-static int on_ok (const Ok  *o) { printf("  Right Ok(%d)\n", o->value);                return o->value; }
+/* miss のときはキーから「フェッチした値」を得る想定（ここでは key*10 で代用） */
+static int on_miss(const Miss *m) { printf("  miss key=%d -> fetch\n", m->key); return m->key * 10; }
+static int on_hit (const Hit  *h) { printf("  hit value=%d\n", h->value);      return h->value; }
 
-/* Result を書き換えずに検査するだけの関数（const Result* で受けられる） */
-static void report(const Result *r) {
-    printf("is_left=%d is_right=%d -> fold=%d\n",
-           Result_is_left(r), Result_is_right(r),
-           Result_fold(r, on_err, on_ok));
+static Lookup cache_get(int key) {
+    /* 偶数キーだけキャッシュ済み、という単純化 */
+    return (key % 2 == 0) ? Lookup_new_right((Hit){ .value = key * 10 })
+                          : Lookup_new_left((Miss){ .key = key });
 }
 
 int main(void) {
-    Result ok  = Result_new_right((Ok){ .value = 42 });
-    Result err = Result_new_left((Err){ .code = 404, .msg = "not found" });
-
-    report(&ok);
-    report(&err);
-
-    /* 型安全な取り出し（右のときだけ非NULL） */
-    const Ok *v = Result_get_right_const(&ok);
-    printf("unwrap_right(ok) = %d\n", v ? v->value : -1);
+    for (int key = 1; key <= 3; ++key) {
+        Lookup r = cache_get(key);
+        printf("key=%d is_hit=%d\n", key, Lookup_is_right(&r));
+        int v = Lookup_value_or_fetch(&r, on_miss, on_hit);
+        printf("  resolved value = %d\n", v);
+    }
     return 0;
 }

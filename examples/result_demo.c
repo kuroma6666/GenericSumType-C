@@ -1,61 +1,68 @@
 /*
- * Result イディオムの使用例（Result<T, E> = ok/err の2 variant）。
+ * 注文処理の Result<OrderId, OrderError>（ドメインエラーは値、技術例外と分離）
  *
- * Result は Either（left/right）の ok/err 版。tag 名を ok/err にした2 variant を
- * DEFINE_SUM_TYPE で定義し、DEFINE_RESULT_HELPERS で is_ok/is_err を生やす。
+ * 【要件】
+ *   注文作成は在庫確認・決済などで失敗しうる。これらは想定内のドメインエラー
+ *   なので、例外ではなく Result の「値」として返し、呼び出し側で分岐・変換したい。
+ *   （DB 接続断のような技術的エラーは別途 例外で扱う、という設計の Result 側。）
  *
- *   構築  : NAME_new_ok / NAME_new_err
- *   述語  : NAME_is_ok / NAME_is_err            (DEFINE_RESULT_HELPERS)
- *   取り出し: NAME_get_ok / NAME_get_err (+_const) (DEFINE_SUM_TYPE)
- *   畳み込み: DEFINE_SUM_MATCH_CONST の ok/err 2ハンドラ
+ * 【仕様】
+ *   - Result は ok=OrderId / err=OrderError のいずれか。
+ *   - is_ok/is_err で分岐、fold で「注文ID or エラーコード」に畳み込む。
+ *   - unwrap_or でデフォルト、同型 and_then（OrderId -> Result）で段階適用。
  *
- * 【C での限界】map/and_then のような「payload 型が変わる」関数合成(ROP)は、
- * 変換先が別の具体 Result 型になり汎用化できない（design_spec 2.10節）。
- * 下の and_then は「同じ型 T -> Result<T,E>」に限れば書ける例。型を変える段は
- * その都度 目標の Result 型を作って手書きする必要がある。
+ * 【実装方針】
+ *   - DEFINE_SUM_TYPE(tag=ok/err) + DEFINE_RESULT_HELPERS（is_ok/is_err）。
+ *   - fold は DEFINE_SUM_MATCH_CONST、取り出しは const ゲッター。
+ *   - 型が変わる合成（map: Result<T,E>->Result<U,E> / map_err）は C では汎用化
+ *     できない（design_spec 2.10節）。同型 and_then か目標型明示の手書きに限る。
  *
- * ビルド: gcc -std=c11 -pedantic -Wall -Wextra -Werror -Iinclude examples/result_demo.c -o result_demo
+ * 仕様の詳細: examples/specs/order_result.md
  */
 #include <stdio.h>
 #include "generic_sum_type.h"
 
-typedef struct { int value; }               Ok;   /* T */
-typedef struct { int code; const char *msg; } Err; /* E */
+typedef struct { int order_id; }               OrderId;
+typedef struct { int kind; const char *reason; } OrderError; /* kind: 業務エラー種別 */
 
-#define RESULT_V(X, NAME, EXTRA) \
-    X(NAME, EXTRA, ok,  Ok)      \
-    X(NAME, EXTRA, err, Err)
+enum { ERR_INSUFFICIENT_STOCK = 1, ERR_PAYMENT_FAILED = 2 };
 
-DEFINE_SUM_TYPE(Result, RESULT_V)
-DEFINE_RESULT_HELPERS(Result)
-DEFINE_SUM_MATCH_CONST(Result, RESULT_V, Result_fold, int)
+#define ORDER_RESULT(X, NAME, EXTRA) \
+    X(NAME, EXTRA, ok,  OrderId)     \
+    X(NAME, EXTRA, err, OrderError)
 
-static int f_ok (const Ok  *o){ return o->value; }
-static int f_err(const Err *e){ printf("  err(%d, \"%s\")\n", e->code, e->msg); return -e->code; }
+DEFINE_SUM_TYPE(OrderResult, ORDER_RESULT)
+DEFINE_RESULT_HELPERS(OrderResult)
+DEFINE_SUM_MATCH_CONST(OrderResult, ORDER_RESULT, OrderResult_fold, int)
 
-/* unwrap_or: 成功なら中身、失敗ならデフォルト（T 型を知っていれば書ける） */
-static Ok Result_unwrap_or(const Result *r, Ok dflt){
-    return r->tag == Result_ok ? r->as.ok : dflt;
+static int fold_ok (const OrderId *o)    { return o->order_id; }
+static int fold_err(const OrderError *e) { printf("  err(%d): %s\n", e->kind, e->reason); return -e->kind; }
+
+static OrderId OrderResult_unwrap_or(const OrderResult *r, OrderId dflt) {
+    return r->tag == OrderResult_ok ? r->as.ok : dflt;
 }
 
-/* and_then（同型 T -> Result<T,E> に限る）。Err はそのまま伝播する */
-static Result Result_and_then(const Result *r, Result (*f)(const Ok*)){
-    return r->tag == Result_ok ? f(&r->as.ok) : *r;
+/* 在庫確認（OrderId -> Result）。同型 and_then で段階適用できる例 */
+static OrderResult check_stock(const OrderId *o) {
+    if (o->order_id % 7 == 0)
+        return OrderResult_new_err((OrderError){ ERR_INSUFFICIENT_STOCK, "out of stock" });
+    return OrderResult_new_ok(*o);
 }
-static Result reject_if_big(const Ok *o){
-    if (o->value > 100) return Result_new_err((Err){ .code=1, .msg="too big" });
-    return Result_new_ok((Ok){ .value = o->value * 2 });
+static OrderResult OrderResult_and_then(const OrderResult *r, OrderResult (*f)(const OrderId *)) {
+    return r->tag == OrderResult_ok ? f(&r->as.ok) : *r;
 }
 
-int main(void){
-    Result ok  = Result_new_ok((Ok){ .value = 21 });
-    Result err = Result_new_err((Err){ .code=404, .msg="not found" });
+int main(void) {
+    OrderResult a = OrderResult_new_ok((OrderId){ .order_id = 1002 });
+    OrderResult b = OrderResult_new_err((OrderError){ ERR_PAYMENT_FAILED, "card declined" });
 
-    printf("is_ok(ok)=%d is_err(err)=%d\n", Result_is_ok(&ok), Result_is_err(&err));
-    printf("fold(ok)=%d fold(err)=%d\n", Result_fold(&ok, f_ok, f_err), Result_fold(&err, f_ok, f_err));
-    printf("unwrap_or(err,{-1})=%d\n", Result_unwrap_or(&err, (Ok){-1}).value);
+    printf("a: is_ok=%d fold=%d\n", OrderResult_is_ok(&a), OrderResult_fold(&a, fold_ok, fold_err));
+    printf("b: is_err=%d fold=%d\n", OrderResult_is_err(&b), OrderResult_fold(&b, fold_ok, fold_err));
+    printf("unwrap_or(b, #0) = %d\n", OrderResult_unwrap_or(&b, (OrderId){0}).order_id);
 
-    Result chained = Result_and_then(&ok, reject_if_big);   /* 21 -> 42 */
-    printf("and_then(ok)=%d\n", Result_is_ok(&chained) ? chained.as.ok.value : -999);
+    OrderResult chained = OrderResult_and_then(&a, check_stock); /* 1002 は7の倍数でない=在庫OK */
+    printf("and_then(a) is_ok=%d order_id=%d\n",
+           OrderResult_is_ok(&chained),
+           OrderResult_is_ok(&chained) ? chained.as.ok.order_id : -1);
     return 0;
 }

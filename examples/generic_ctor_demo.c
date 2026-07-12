@@ -1,66 +1,65 @@
 /*
- * generic_ctor_demo.c
+ * 型からのイベント構築（タグ名を書かずに、値の型でコンストラクタを自動選択）
  *
- * DEFINE_SUM_NEW_GENERIC / SUM_NEW（C11以降限定のオプトイン機能）の使用例。
+ * 【要件】
+ *   センサハブは温度・スイッチ・パルスカウントなど複数種のイベントを1つの
+ *   イベント型に格納する。生成側でタグ名（_temp/_sw/_pulse）を毎回綴るのは
+ *   間違いやすいので、値の型からコンストラクタを自動選択して構築したい。
  *
- * DEFINE_SUM_TYPEが生成する NAME_new_<tag>() は、呼び出し側がタグ名
- * （このデモなら i / s / f）を正しく覚えて綴る必要がある。C11の _Generic を使うと、
- * 渡す値の「型」だけからコンストラクタを自動選択できるようになり、タグ名という
- * 語彙を呼び出し側の記憶から追い出せる。
+ * 【仕様】
+ *   - SensorEvent は temp / sw / pulse のいずれか（各 payload は専用 struct）。
+ *   - 渡した値の型から対応コンストラクタを自動選択して SensorEvent を構築できる。
+ *   - C11 の _Generic を使うため C11 以降限定。C99 ビルドではスキップメッセージのみ
+ *     （ファイル自身を __STDC_VERSION__ で自己ガード）。
  *
- *   IntOrStrOrFloat_new_i((IntBox){42})                        // 従来: タグ名を書く
- *   SUM_NEW(IntOrStrOrFloat, IOSF_VARIANTS, ((IntBox){42}))    // 今回: 型から自動選択
+ * 【実装方針】
+ *   - DEFINE_SUM_NEW_GENERIC で補助を生成し、SUM_NEW で構築。
+ *     利用側の推奨イディオム #define SensorEvent_new(x) SUM_NEW(...) も示す。
+ *   - 注意（プリプロセッサの制約）: 複数フィールドの複合リテラルを SUM_NEW や
+ *     SensorEvent_new へ「その場で」渡すと、波括弧内のカンマがマクロ引数区切りと
+ *     誤認されて壊れる（括弧はカンマを守るが波括弧は守らない）。実務では payload を
+ *     いったん名前付き変数に代入して渡すのが安全（本デモもそうしている）。
+ *   - 2つ以上の variant が同一 payload 型を共有すると _Generic 連想が重複し
+ *     コンパイルエラーになる（design_spec 4.13節）。専用 struct でラップして回避。
  *
- * ただしDEFINE_SUM_TYPE等と違い、NAME_new(x)のような専用マクロは生成できない
- * （Cのプリプロセッサはマクロ展開結果から新しい#defineを起こせないため。
- * design_spec.md 4.13節）。そのためSUM_NEWはNAMEとVARIANTSを毎回明示する
- * 単一の共通マクロになっている。
- *
- * ペイロードをdemo.cのように生の int32_t / const char* / double のまま使わず、
- * 専用structでラップしているのは、3節が既に推奨している設計ガイドラインに加えて
- * SUM_NEW固有の理由もある。_Generic は制御式の型が完全一致しないと選択できず、
- * 例えば生の const char* をキーにすると文字列リテラル（減衰後 char*）が
- * マッチしない、という落とし穴が実機検証で見つかっている（design_spec.md 4.13節）。
- * 専用structでラップしておけば、_Genericが見るのは外側のstruct型だけになるため
- * この落とし穴を避けられる。
- *
- * このファイル自体はC99でもビルドできる（SUM_NEWを使う部分だけ__STDC_VERSION__で
- * 分岐し、C99実行時は案内メッセージを出すだけにしている）。これはci.ymlが
- * examples配下の全 .c ファイルをc99/c11/c17全マトリクスでビルドする既存の運用を
- * 変更せずに済ませるための構成であり、design_spec.md 4.13節で検証した
- * 「C11限定機能をCIに乗せる実務コスト」への対応そのものである。
+ * 仕様の詳細: examples/specs/sensor_event.md
  */
-#include <stdint.h>
 #include <stdio.h>
+
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #include "generic_sum_type.h"
 
-typedef struct { int32_t v; } IntBox;
-typedef struct { const char *v; } StrBox;
-typedef struct { double v; } FloatBox;
+typedef struct { double celsius; } TempReading;
+typedef struct { int gpio; int on; } SwitchEvent;
+typedef struct { unsigned count; }  PulseCount;
 
-#define IOSF_VARIANTS(X, NAME, EXTRA) \
-    X(NAME, EXTRA, i, IntBox)         \
-    X(NAME, EXTRA, s, StrBox)         \
-    X(NAME, EXTRA, f, FloatBox)
+#define SENSOR_EVENT(X, NAME, EXTRA)     \
+    X(NAME, EXTRA, temp,  TempReading)   \
+    X(NAME, EXTRA, sw,    SwitchEvent)   \
+    X(NAME, EXTRA, pulse, PulseCount)
 
-DEFINE_SUM_TYPE(IntOrStrOrFloat, IOSF_VARIANTS)
-
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-DEFINE_SUM_NEW_GENERIC(IntOrStrOrFloat, IOSF_VARIANTS)
-#endif
+DEFINE_SUM_TYPE(SensorEvent, SENSOR_EVENT)
+DEFINE_SUM_NEW_GENERIC(SensorEvent, SENSOR_EVENT)
+#define SensorEvent_new(x) SUM_NEW(SensorEvent, SENSOR_EVENT, (x))
 
 int main(void) {
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-    /* 型だけを見てコンストラクタが自動選択される。タグ名(i/s/f)を書く必要がない */
-    IntOrStrOrFloat a = SUM_NEW(IntOrStrOrFloat, IOSF_VARIANTS, ((IntBox){ 42 }));
-    IntOrStrOrFloat b = SUM_NEW(IntOrStrOrFloat, IOSF_VARIANTS, ((StrBox){ "hello" }));
-    IntOrStrOrFloat c = SUM_NEW(IntOrStrOrFloat, IOSF_VARIANTS, ((FloatBox){ 3.14 }));
+    /* payload は名前付き変数に入れてから渡す（複合リテラル内カンマ問題の回避） */
+    TempReading tr = { .celsius = 25.5 };
+    SwitchEvent se = { .gpio = 4, .on = 1 };
+    PulseCount  pc = { .count = 128 };
 
-    printf("a: tag=%d v=%d\n", a.tag, IntOrStrOrFloat_get_i(&a)->v);
-    printf("b: tag=%d v=%s\n", b.tag, IntOrStrOrFloat_get_s(&b)->v);
-    printf("c: tag=%d v=%f\n", c.tag, IntOrStrOrFloat_get_f(&c)->v);
+    SensorEvent e1 = SensorEvent_new(tr);   /* 型 TempReading -> _temp を自動選択 */
+    SensorEvent e2 = SensorEvent_new(se);   /* 型 SwitchEvent -> _sw   を自動選択 */
+    SensorEvent e3 = SensorEvent_new(pc);   /* 型 PulseCount  -> _pulse を自動選択 */
+
+    printf("e1 temp:  celsius=%.1f\n", SensorEvent_get_temp(&e1)->celsius);
+    printf("e2 sw:    gpio=%d on=%d\n", SensorEvent_get_sw(&e2)->gpio, SensorEvent_get_sw(&e2)->on);
+    printf("e3 pulse: count=%u\n", SensorEvent_get_pulse(&e3)->count);
+    return (e1.tag == SensorEvent_temp && e2.tag == SensorEvent_sw && e3.tag == SensorEvent_pulse) ? 0 : 1;
+}
 #else
-    printf("generic_ctor_demo: SUM_NEWはC11以降限定のため、このビルド(C99)ではスキップします\n");
-#endif
+int main(void) {
+    printf("skip: DEFINE_SUM_NEW_GENERIC/SUM_NEW は C11 以降限定（_Generic 不可のため）\n");
     return 0;
 }
+#endif

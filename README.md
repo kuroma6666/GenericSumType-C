@@ -62,21 +62,22 @@ GenericSumType-C/
 ├── include/
 │   └── generic_sum_type.h        # ライブラリ本体(ヘッダオンリー)
 ├── examples/
-│   ├── demo.c                    # 基本例(int/str/float)
-│   ├── shape_demo.c               # 図形の面積計算・表示(DEFINE_SUM_MATCH複数定義)
-│   ├── const_view_demo.c          # const版read-only検査(DEFINE_SUM_MATCH_CONST/get_<tag>_const)
-│   ├── either_demo.c             # Eitherイディオム(left/right + DEFINE_EITHER_HELPERS)
-│   ├── result_demo.c             # Resultイディオム(ok/err + DEFINE_RESULT_HELPERS)
-│   ├── command_demo.c             # コマンドディスパッチ(DEFINE_SUM_DISPATCH)
-│   ├── resource_demo.c            # ポインタ資源の解放/コピー(DEFINE_SUM_DESTROY/COPY)
-│   ├── threadsafe_dispatch_demo.c # pthreadでのロックフック検証
+│   ├── demo.c                    # 設定値ストア(int32/文字列/double を1つの値型で保持)
+│   ├── shape_demo.c               # 描画プリミティブのコスト見積り(DEFINE_SUM_MATCH複数定義)
+│   ├── const_view_demo.c          # 描画プリミティブのread-only検査(DEFINE_SUM_MATCH_CONST/get_<tag>_const)
+│   ├── either_demo.c             # キャッシュHit/Miss(Either: left/right + DEFINE_EITHER_HELPERS)
+│   ├── result_demo.c             # 注文処理のResult(ok/err + DEFINE_RESULT_HELPERS)
+│   ├── command_demo.c             # モータ制御コマンドのディスパッチ(DEFINE_SUM_DISPATCH)
+│   ├── resource_demo.c            # ログレコードの解放/コピー(DEFINE_SUM_DESTROY/COPY)
+│   ├── threadsafe_dispatch_demo.c # テレメトリカウンタの並行更新(pthreadロックフック)
 │   ├── internal_command.h         # 内部処理系Commandの型・DISPATCH・ハンドラ本体
 │   ├── internal_command_demo.c    # ↑を使う薄いデモ(デバイス状態を書き換えるDISPATCH)
 │   ├── protocol_frame.h           # 通信処理系Commandの型・MATCH・分類ロジック
 │   ├── protocol_frame_demo.c      # ↑を使う薄いデモ(受信フレームを分類するMATCH)
 │   ├── recipe_command.h           # ROM/RAMパラメータ取得系Commandの型・DISPATCH・ハンドラ本体
 │   ├── recipe_param_demo.c        # ↑を使う薄いデモ(永続ストアへのDISPATCH)
-│   └── generic_ctor_demo.c        # DEFINE_SUM_NEW_GENERIC/SUM_NEWの例(C11以降限定・自己ガード付き)
+│   ├── generic_ctor_demo.c        # 型からのイベント構築(DEFINE_SUM_NEW_GENERIC/SUM_NEW, C11以降限定・自己ガード付き)
+│   └── specs/                     # 各demoの要件・仕様(要件→仕様→実装対応→受け入れ基準)
 ├── tests/
 │   ├── test_generic_sum_type.c     # ライブラリ本体の単体テスト(assert()ベース)
 │   ├── test_internal_command.c     # internal_command.hの単体テスト
