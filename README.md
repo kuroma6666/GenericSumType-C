@@ -4,15 +4,19 @@
 
 C言語で、Rustの `enum`(代数的直和型/タグ付き共用体)に近い書き味を実現するための、依存ゼロ・ヘッダオンリーのジェネリックマクロライブラリ。X-Macroパターンにより、N個の任意型を持つ直和型を1箇所の型リスト定義から生成し、ハンドラの渡し忘れ・渡し順の取り違えを**コンパイルエラーとして**検出する。
 
+採用を検討する場合は先に [docs/requirements.md](./docs/requirements.md) を読むこと。
+**variant が今後増えること**と**`-Wall -Wextra -Werror` を運用できること**の両方が成り立つときにだけ価値がある。
+
 ## 特徴
 
 - **N分岐対応**: variant数を問わない。型リストに1行足すだけで拡張できる
-- **網羅性検査**: ハンドラの渡し忘れ・型の異なるvariant間での順序取り違えは、通常のC言語の関数プロトタイプチェックだけでコンパイルエラーになる(特別なビルドフラグ不要)
+- **網羅性検査**: ハンドラの渡し忘れは、通常のC言語の関数プロトタイプチェックだけでコンパイルエラーになる(`-Wswitch` 等のフラグ運用に依存しない)
+- **順序取り違え検査**: 型の異なるvariant間でハンドラの順序を入れ替えると `-Wincompatible-pointer-types` になる。**`-Werror` の運用が前提**(付けないと警告止まりで通ってしまう)
 - **リソース管理**: `DEFINE_SUM_DESTROY` / `DEFINE_SUM_COPY` により、ポインタ資源(heap確保文字列など)の解放・ディープコピーも網羅性検査付きで書ける
 - **スレッドセーフ対応**: `SUM_CTX_LOCK` / `SUM_CTX_UNLOCK` フックにより、RTOS・pthread等のロックプリミティブを差し込める(デフォルトはno-opでコストゼロ)
 - **コンストラクタ自動選択(C11以降・オプトイン)**: `DEFINE_SUM_NEW_GENERIC` / `SUM_NEW` により、`_Generic`を使って渡した値の型からコンストラクタを自動選択できる(タグ名を書かずに済む)。C99ビルドではこの機能自体が存在しない扱いになる
 - **依存ゼロ**: 標準Cヘッダのみに依存。外部ライブラリ不要
-- **対応環境**: C99以降 / GCC・Clang(MSVCは意図的に対象外。詳細は [design_spec.md](./design_spec.md) 参照)
+- **対応環境**: C99以降 / GCC・Clang(MSVCは意図的に対象外。詳細は [ADR-0007](./docs/adr/0007-msvc-out-of-scope.md) 参照)
 
 ## クイックスタート
 
@@ -53,7 +57,7 @@ IntOrStrOrFloat v = SUM_NEW(IntOrStrOrFloat, INT_OR_STR_OR_FLOAT, 42);
 #endif
 ```
 
-実例は [`examples/generic_ctor_demo.c`](./examples/generic_ctor_demo.c)、設計判断・既知の制約は [design_spec.md](./design_spec.md) 2.8節/4.13節を参照。
+実例は [`examples/generic_ctor_demo.c`](./examples/generic_ctor_demo.c)、設計判断・既知の制約は [ADR-0008](./docs/adr/0008-generic-constructor-selection.md) を参照。
 
 ## ディレクトリ構成
 
@@ -83,21 +87,30 @@ GenericSumType-C/
 │   ├── test_internal_command.c     # internal_command.hの単体テスト
 │   ├── test_protocol_frame.c       # protocol_frame.hの単体テスト
 │   ├── test_recipe_command.c       # recipe_command.hの単体テスト
-│   ├── test_sum_new_generic.c      # DEFINE_SUM_NEW_GENERIC/SUM_NEWの単体テスト(C11以降限定・自己ガード付き)
-│   └── test_compile_guarantees.sh  # コンパイル時保証の回帰テスト
+│   └── test_sum_new_generic.c      # DEFINE_SUM_NEW_GENERIC/SUM_NEWの単体テスト(C11以降限定・自己ガード付き)
+├── spec/                          # コンパイル時保証の実行可能仕様(単一ソース)
+│   ├── manifest.tsv                # 保証の一覧。ここが仕様の実体
+│   ├── cases/G-NNN.c               # ケース断片(1ファイル1ケース)
+│   ├── run.sh                      # 判定(コンパイラを実際に走らせて期待結果と突き合わせる)
+│   └── emit.sh                     # docs/GUARANTEES.md を生成する
 ├── verify/
 │   ├── cbmc_destroy_harness.c      # DEFINE_SUM_DESTROY呼び出し忘れ/cleanup属性の二重解放をCBMCで検証するハーネス
 │   ├── cbmc_verify_destroy.sh      # 上記ハーネスの3ケースをまとめて実行するスクリプト
 │   └── README.md                   # verify/の使い方(CIには組み込まれていない任意の追加検証)
+├── docs/
+│   ├── requirements.md            # 何を解くか・採用条件・非目標
+│   ├── GUARANTEES.md              # コンパイル時に何が保証されるか(spec/ からの生成物)
+│   ├── constraints.md             # できないことの一覧(C-01〜C-13)
+│   └── adr/                       # 設計判断の記録(なぜAではなくBか。1判断1ファイル)
 ├── .github/workflows/ci.yml       # GitHub Actions(gcc/clang × c99/c11/c17)
-├── design_spec.md                 # 設計仕様書(判断根拠・トレードオフ・既知の制約。結論のみのリファレンス)
+├── api_reference.md               # APIリファレンス(マクロ一覧・シグネチャ)
 ├── VERIFICATION_LOG.md            # 検証ログ(検証の経緯・訂正履歴・規格条文突き合わせ・バグ記録)
-└── api_reference.md               # APIリファレンス(マクロ一覧・シグネチャ)
+└── design_spec.md                 # 旧設計仕様書。分割済みのため移設マップのみ残している
 ```
 
-`internal_command_demo.c` / `protocol_frame_demo.c` / `recipe_param_demo.c` は、型定義・DISPATCH(またはMATCH)・ハンドラ本体をそれぞれ同名の`.h`に切り出し、`main()`だけの薄いドライバにしている。これはdesign_spec.md 4.10節で検証済みの「共通ヘッダを複数の`.c`からincludeする」パターンの応用で、デモ本体と`tests/`配下の単体テストが同じハンドラ実装を共有できるようにするための構成である(単体テストのために`main()`を分割できない、という制約への対応)。
+`internal_command_demo.c` / `protocol_frame_demo.c` / `recipe_param_demo.c` は、型定義・DISPATCH(またはMATCH)・ハンドラ本体をそれぞれ同名の`.h`に切り出し、`main()`だけの薄いドライバにしている。これは [C-11](./docs/constraints.md#c-11) / [G-007](./docs/GUARANTEES.md#g-007) で検証済みの「共通ヘッダを複数の`.c`からincludeする」パターンの応用で、デモ本体と`tests/`配下の単体テストが同じハンドラ実装を共有できるようにするための構成である(単体テストのために`main()`を分割できない、という制約への対応)。
 
-`generic_ctor_demo.c` / `test_sum_new_generic.c` はC11以降限定の機能を使うが、ファイル自体は`__STDC_VERSION__`で中身を分岐させ、C99でもビルド・実行できる(該当部分はスキップメッセージを出すだけ)ようにしてある。これはci.ymlの既存のグロブ運用(examples/tests配下を無条件でc99/c11/c17全マトリクスにかける)を変更せずに済ませるための構成である。詳細はdesign_spec.md 4.13節を参照。
+`generic_ctor_demo.c` / `test_sum_new_generic.c` はC11以降限定の機能を使うが、ファイル自体は`__STDC_VERSION__`で中身を分岐させ、C99でもビルド・実行できる(該当部分はスキップメッセージを出すだけ)ようにしてある。これはci.ymlの既存のグロブ運用(examples/tests配下を無条件でc99/c11/c17全マトリクスにかける)を変更せずに済ませるための構成である。詳細は [ADR-0008](./docs/adr/0008-generic-constructor-selection.md) を参照。
 
 ## ビルド・テスト
 
@@ -118,12 +131,21 @@ for tf in tests/test_*.c; do
 done
 ```
 
-コンパイル時保証(渡し忘れ・順序取り違えが実際に検出されるか)の回帰テスト:
+コンパイル時保証(渡し忘れ・順序取り違えが実際に検出されるか)の検査:
 
 ```sh
-tests/test_compile_guarantees.sh          # デフォルト: gcc, -std=c11
-CC=clang STD=c17 tests/test_compile_guarantees.sh  # コンパイラ/C標準を切り替え
+spec/run.sh                     # デフォルト: gcc, -std=c11
+CC=clang STD=c17 spec/run.sh    # コンパイラ/C標準を切り替え
+spec/run.sh G-009 G-017         # 指定したケースだけ実行
+
+spec/emit.sh --check            # docs/GUARANTEES.md が spec/ と同期しているか検査
 ```
+
+このライブラリのランタイム挙動は `switch` 一つ分しかなく、実際に約束しているのは
+「**どんなコードがコンパイルを通り、どんなコードが通らないか**」である。したがって
+[`spec/manifest.tsv`](./spec/manifest.tsv) がこのライブラリの仕様の中核であり、その判定器は
+コンパイラそのものになる。[docs/GUARANTEES.md](./docs/GUARANTEES.md) はそこからの生成物で、
+CI が同期を検査しているため手で編集してはならない。詳しくは [spec/README.md](./spec/README.md)。
 
 CIでは `gcc`/`clang` × `c99`/`c11`/`c17` の全6組み合わせで、上記に加え全デモの実行確認まで自動実行している([ci.yml](./.github/workflows/ci.yml))。
 
@@ -138,13 +160,27 @@ chmod +x cbmc_verify_destroy.sh
 ./cbmc_verify_destroy.sh
 ```
 
-詳細・実機での検証結果は [verify/README.md](./verify/README.md) と design_spec.md 8節を参照。
+詳細・実機での検証結果は [verify/README.md](./verify/README.md) と [C-03](./docs/constraints.md#c-03) を参照。
 
 ## ドキュメント
 
-- [api_reference.md](./api_reference.md) — 提供するマクロ・関数のシグネチャ一覧(「何ができるか」を引くためのリファレンス)
-- [design_spec.md](./design_spec.md) — 設計思想、各マクロを採用した判断根拠とトレードオフ、実装していないこと・既知の制約(「なぜそうなっているか」の結論を引くためのリファレンス)
-- [VERIFICATION_LOG.md](./VERIFICATION_LOG.md) — 検証の経緯・訂正履歴・ISO C規格条文との突き合わせ・見つかったバグの記録(design_spec.mdの結論に至るまでの過程。節番号はdesign_spec.mdに対応)
+読者と更新頻度で分けてある。「今どうなっているか」と「なぜそうしたか」と「そこに至る過程」を混ぜない。
+
+| 文書 | 引きたいこと |
+|---|---|
+| [docs/requirements.md](./docs/requirements.md) | このライブラリを**使うべきか**。想定利用者・採用すべきでない状況・非目標 |
+| [api_reference.md](./api_reference.md) | **何ができるか**。マクロ・関数のシグネチャ一覧 |
+| [docs/GUARANTEES.md](./docs/GUARANTEES.md) | **何がコンパイル時に保証されるか**。`spec/` からの生成物 |
+| [docs/constraints.md](./docs/constraints.md) | **何ができないか**。制約カタログ(`C-01`〜`C-13`) |
+| [docs/adr/](./docs/adr/) | **なぜそう設計したか**。1判断1ファイルの追記型 |
+| [spec/](./spec/) | 保証の実行可能仕様。ケースを足すならここ |
+| [VERIFICATION_LOG.md](./VERIFICATION_LOG.md) | **結論にどう辿り着いたか**。訂正履歴・規格条文との突き合わせ・見つかったバグ |
+
+制約と保証には `C-01` / `G-001` という安定した ID を振ってある。節番号は改版で動くため、
+他の文書・コミット・Issue からはこの ID で参照すること。
+
+旧 [design_spec.md](./design_spec.md) は上記に分割済みで、旧節番号からの移設マップだけが残っている
+(`VERIFICATION_LOG.md` の節番号は旧 design_spec の節番号に対応しているため)。
 
 ## 参考資料
 
