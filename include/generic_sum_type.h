@@ -5,149 +5,83 @@
  * C にはパラメトリック多相がないため、「型パラメータの解決」をプリプロセッサの
  * X-Macro展開によってコンパイル時に行う（C++テンプレートの手動再現に相当）。
  *
- * 対応C標準: C99以降
- * 対応コンパイラ: GCC / Clang（設計仕様書 design_spec.md を参照。MSVCは対象外とする）
+ * 対応C標準:     C99以降（static inline、指示付き初期化を使う）
+ * 対応コンパイラ: GCC / Clang（MSVCは対象外。docs/adr/0007-msvc-out-of-scope.md）
+ * 必須ビルドフラグ: -Wall -Wextra -Werror
+ *     -Werror を外すと順序取り違えの検出が警告止まりになり、このライブラリの
+ *     価値の半分が失われる。docs/GUARANTEES.md 参照。
  *
- * --- 使い方 ---
+ * --- ドキュメント ---
+ *
+ *   何を解くライブラリか・採用条件  docs/requirements.md
+ *   シグネチャと使い方              api_reference.md
+ *   コンパイル時に何が保証されるか  docs/GUARANTEES.md（spec/ からの生成物）
+ *   できないことの一覧              docs/constraints.md
+ *   なぜそう設計したか              docs/adr/
+ *
+ * このコメントは点で引くための要約に留める。制約や判断根拠を二重管理しないため、
+ * 詳細は上記の文書を単一のソースとする。
+ *
+ * --- 使い方の要約 ---
  *
  *   1. 型リストをX-Macroとして1箇所だけで定義する（Rustのenum variant一覧に相当）。
  *      NAME, EXTRA は生成マクロ側から渡される「文脈引数」で、リスト定義側は
- *      素通しするだけでよい（各DEFINE_SUM_*マクロから同じリストを再利用するために存在する）。
+ *      素通しするだけでよい。
  *
  *        #define MY_VARIANTS(X, NAME, EXTRA) \
  *            X(NAME, EXTRA, tag1, Type1)      \
- *            X(NAME, EXTRA, tag2, Type2)      \
- *            ...
+ *            X(NAME, EXTRA, tag2, Type2)
+ *
+ *      ペイロード型は variant 間で重複させないこと（docs/constraints.md C-01）。
+ *      たとえ1フィールドでも専用structでラップするのが推奨手段。
  *
  *   2. DEFINE_SUM_TYPE(MyType, MY_VARIANTS)
- *        -> MyType_tag_t（enum）, MyType（タグ付きunion構造体）,
- *           MyType_new_<tag>(), MyType_get_<tag>() を生成する。
+ *        -> MyType_tag_t, MyType, MyType_new_<tag>(),
+ *           MyType_get_<tag>(), MyType_get_<tag>_const() を生成
  *
- *   3. DEFINE_SUM_MATCH(MyType, MY_VARIANTS, match_fn_name, RetType)
- *        -> match_fn_name(MyType *self, RetType (*on_tag1)(Type1*), ...) を生成する。
- *        1つのSumTypeに対して用途ごとに複数のmatch関数を、関数名を変えて複数回定義できる。
- *        各ハンドラは「payloadだけ」を受け取る純粋な変換関数を想定している。
- *        RetTypeにvoidを渡すのは非推奨（-pedantic環境でISO C違反の警告が出る。用途としては
- *        DEFINE_SUM_DISPATCHかDEFINE_SUM_DESTROYを使うこと）。
- *        read-only用途（payloadを書き換えない）で self を const NAME* のまま渡したい場合は
- *        DEFINE_SUM_MATCH_CONST を使う（ハンドラは Type1 const* を受け取る）。
- *        DEFINE_SUM_TYPE は可変ゲッター NAME_get_<tag>() に加え、const NAME* から
- *        呼べる NAME_get_<tag>_const()（Type const* を返す）も生成する。
+ *   3. 用途に応じてディスパッチャを生成する。
  *
- *   4. DEFINE_SUM_DISPATCH(MyType, MY_VARIANTS, dispatch_fn_name, CtxType)
- *        -> dispatch_fn_name(MyType *self, CtxType *ctx,
- *             void (*on_tag1)(Type1*, CtxType*), ...) を生成する。
- *        コマンドディスパッチのように「payloadに加えて共有状態(ctx)を書き換える副作用」を
- *        伴うハンドラ向け。戻り値は常にvoidに固定している。
- *        SUM_CTX_LOCK/SUM_CTX_UNLOCK フック（後述）でロック区間を挟める。
+ *        DEFINE_SUM_MATCH        値を返す純粋変換          RetType (*)(Type*)
+ *        DEFINE_SUM_MATCH_CONST  同上のread-only版         RetType (*)(Type const*)
+ *        DEFINE_SUM_DISPATCH     ctxを書き換える副作用     void (*)(Type*, Ctx*)
+ *        DEFINE_SUM_DESTROY      資源の解放                void (*)(Type*)
+ *        DEFINE_SUM_COPY         ディープコピー            Type (*)(const Type*)
  *
- *   5. DEFINE_SUM_DESTROY(MyType, MY_VARIANTS, destroy_fn_name)
- *        -> destroy_fn_name(MyType *self, void (*on_tag1)(Type1*), ...) を生成する。
- *        ポインタ資源（heap確保された文字列やバッファなど）を持つvariantを解放するための
- *        デストラクタディスパッチ。資源を持たないvariantにはSUM_DEFINE_NOOP_DESTROYで
- *        生成した何もしない関数を渡せばよい。
+ *      DEFINE_SUM_MATCH に RetType=void を渡してはならない（C-08）。void用途は
+ *      DEFINE_SUM_DISPATCH か DEFINE_SUM_DESTROY を使う。
  *
- *   6. DEFINE_SUM_COPY(MyType, MY_VARIANTS, copy_fn_name)
- *        -> copy_fn_name(const MyType *self, Type1 (*copy_tag1)(const Type1*), ...) -> MyType
- *        を生成する。ポインタ資源を持つvariantのディープコピー（例: strdup）を行うための
- *        コピーディスパッチ。値そのものを複製するだけでよいvariantにはSUM_DEFINE_IDENTITY_COPY
- *        で生成した関数を渡せばよい。
+ * --- 網羅性検査の仕組み（このライブラリの中核） ---
  *
- * --- 網羅性検査の仕組み ---
+ * 生成される各ディスパッチ関数の引数リストは VARIANTS から自動生成されるため、
+ * 引数の個数は「その時点でのvariant数」と常に一致する。したがって variant を
+ * 1個追加すると必須引数も1個増え、渡し忘れは「too few arguments to function」
+ * という通常の関数プロトタイプ検査としてコンパイルが失敗する。
+ * つまり網羅性は -Wswitch のようなビルドフラグの運用ではなく、C言語標準の
+ * 引数チェックだけで強制される。
  *
- * 生成される各ディスパッチ関数の引数リストは VARIANTS リストから自動生成されるため、
- * 引数の個数は「その時点でのvariant数」と常に一致する。したがって：
+ * さらに各ハンドラの型は variant ごとのペイロード型で固有になるため、ペイロード型が
+ * 異なれば渡す順序を間違えても -Wincompatible-pointer-types で検出できる
+ * （名前的型付けの利用。-Werror 必須）。検出できないのは2つ以上のvariantが
+ * 互換な型を共有している場合のみ（C-01）。
  *
- *   - variant を1個追加すると、生成される関数の必須引数も1個増える。
- *   - 既存の呼び出し側がハンドラを1個渡し忘れていれば、
- *     「too few arguments to function」という通常の関数呼び出しの
- *     型検査エラーとしてコンパイルが失敗する。
+ * switch文に default: を置いていないのは、tagを手で拡張された場合に -Wswitch を
+ * 働かせるため。不正tagの検知は default: ではなく SUM_UNHANDLED_TAG フックで行う
+ * （docs/adr/0010-unhandled-tag-hook.md）。
  *
- * つまり網羅性は "-Wswitch を有効にする" といったビルドフラグの運用に頼るのではなく、
- * 通常のC言語の関数プロトタイプの引数チェックだけで強制される。
+ * --- 差し込めるフック ---
  *
- * さらに、各ハンドラの型は variant ごとのペイロード型で固有になっているため、
- * 2つのvariantのペイロード型が異なっていれば、渡す順序を間違えても
- * -Wincompatible-pointer-types（-Werror下ではコンパイルエラー）で検出できる
- * （構造的に同一レイアウトでも別のtypedefであれば別の型として扱われるC言語の
- *   名前的型付けを利用している）。検出できないのは2つ以上のvariantが文字通り
- * 同一の型をペイロードに使っている場合のみであり、これを避けるため
- * 「ペイロードに素の基本型を直接使わず専用structでラップする」ことを設計ガイドラインとする。
+ *   SUM_CTX_LOCK / SUM_CTX_UNLOCK   DEFINE_SUM_DISPATCH のロック区間。既定 no-op
+ *   SUM_UNHANDLED_TAG               不正tagの検知。既定 no-op
  *
- * switch文自体には default: を置いていない。これは *_tag_t を誰かが
- * マクロ経由以外で直接いじった場合の保険であり、-Wswitch (通常 -Wall に含まれる)
- * を有効にしていれば、その場合も未処理ケースが警告される。
- *
- * --- スレッドセーフティについて ---
- *
- * 本ライブラリ自体は特定のロックプリミティブに依存しない。RTOS（FreeRTOSのセマフォ等）と
- * Linux（pthread_mutex等）では利用できるロック機構が異なるため、環境依存のロック実装を
- * ライブラリ側に埋め込むと可搬性を損なう。そこで、DEFINE_SUM_DISPATCHが生成する関数は
- * 実行区間の前後で SUM_CTX_LOCK(ctx) / SUM_CTX_UNLOCK(ctx) を呼ぶようにしておき、
- * これらはデフォルトでは何もしない（no-op）マクロとして定義している。
- * ロックが必要な場合は、本ヘッダをincludeする前に利用側で以下のように再定義する。
- *
- *   #define SUM_CTX_LOCK(ctx)   pthread_mutex_lock(&(ctx)->mutex)
- *   #define SUM_CTX_UNLOCK(ctx) pthread_mutex_unlock(&(ctx)->mutex)
- *   #include "generic_sum_type.h"
- *
- * ロックが不要な用途では追加コストはゼロ（no-opはコンパイラが最適化で消す）。
- * どの粒度でロックするか（dispatch呼び出し単位か、もっと粗い単位か）は
- * アプリケーション側の責務であり、本ライブラリはフックの提供にとどめる。
- *
- * 【再入（recursive dispatch）によるデッドロックに注意】
- * ロック区間は SUM_CTX_LOCK(ctx) からハンドラ本体を含む switch 全体を経て
- * SUM_CTX_UNLOCK(ctx) までを1つの区間とする（ハンドラ実行中もロックを保持し続ける）。
- * このためハンドラが同一 ctx に対して直接／間接に別の dispatch を呼び返すと、
- * SUM_CTX_LOCK に非再帰ロック（pthread_mutexのデフォルト等）を差し込んでいる場合は
- * 自己デッドロックする。回避策は次のいずれか:
- *   - ハンドラ内で同一 ctx への再 dispatch を行わない（再 dispatch はロック区間の外、
- *     すなわち呼び出し元のスコープで発行する）。推奨。
- *   - 再入が避けられない設計では、SUM_CTX_LOCK に再帰対応プリミティブ
- *     （PTHREAD_MUTEX_RECURSIVE で初期化した mutex 等）を差し込む。
- * なお self->tag が不正な値でも switch はどの case にも入らず SUM_CTX_UNLOCK に到達するため、
- * LOCK/UNLOCK の対応は崩れない（ロック解放漏れは起きない）。詳細は design_spec.md 4.8節。
- *
- * --- DEFINE_SUM_NEW_GENERIC / SUM_NEW（C11以降限定のオプトイン機能）について ---
- *
- * C11の _Generic（ジェネリック選択）を使い、渡した値の「型」だけからコンストラクタを
- * 自動選択する糖衣構文。DEFINE_SUM_TYPEが生成する NAME_new_<tag>() を、タグ名を
- * 意識せず呼べるようにする。
- *
- *   DEFINE_SUM_NEW_GENERIC(MyType, MY_VARIANTS)   // 補助の型・関数を1回だけ生成
- *   MyType v = SUM_NEW(MyType, MY_VARIANTS, (Type1){ ... });
- *
- * 他のDEFINE_SUM_*と違い、NAME_new(x)のような専用マクロは生成できない。Cの
- * プリプロセッサはマクロ展開結果の中から新しい#defineディレクティブを起こす
- * 機能を持たないため（実機検証済み。design_spec.md 4.13節）、
- * DEFINE_SUM_NEW_GENERICが生成できるのは補助の型・関数のみであり、実際の
- * ディスパッチはNAMEとVARIANTSを毎回明示するSUM_NEWという単一の共通マクロが
- * 担う。
- *
- * 制約（design_spec.md 4.13節に検証結果を記載）:
- *   - C11以上必須。__STDC_VERSION__ でガードしており、C99ビルドでは
- *     DEFINE_SUM_NEW_GENERIC / SUM_NEW いずれも定義されない。
- *   - _Genericは制御式の型が完全一致しないと選択できない（暗黙の型変換に
- *     頼れない）。ポインタが指す先のconst有無も別の型として扱われる
- *     （char*とconst char*は別キー）。ペイロードを専用structでラップする
- *     設計ガイドライン（3節）に従っていれば問題にならない。
- *   - 2つ以上のvariantが同一のペイロード型を共有していると、_Genericの
- *     連想リストが重複し、コンパイルエラーになる。ただしこれは
- *     DEFINE_SUM_NEW_GENERIC単体を呼んだだけでは検出されない。
- *     DEFINE_SUM_NEW_GENERICは補助の型・関数を生成するだけで_Generic自体を
- *     まだ展開しないため、実際にSUM_NEW(NAME, VARIANTS, x)を呼んで
- *     _Genericが展開された箇所で初めて検出される（実機検証で確認済み。
- *     当初「DEFINE_SUM_NEW_GENERICを呼ぶだけで検出できる」と誤解していたが、
- *     テスト作成時に実際には検出されないことが分かり訂正した）。
+ * いずれも本ヘッダを include する前に再定義する。ロック区間はハンドラ本体全体を
+ * 包むため、同一ctxへの再dispatchは非再帰ロックでデッドロックする（C-09）。
  *
  * --- 未使用関数の警告について ---
  *
- * DEFINE_SUM_TYPE等が生成する各関数は「利用側が必要なものだけを使う」前提であり、
- * 生成された全関数を毎回使い切るとは限らない（例えばコンストラクタとdispatchだけ使い、
- * ゲッターは使わない、というのはごく普通の使い方である）。GCCは未使用のstatic inline関数を
- * 警告しないが、Clangは -Wunused-function で警告する（実機で確認済みの実在するコンパイラ間差異）。
- * そのため生成される全 static inline 関数に SUM_MAYBE_UNUSED を付与し、
- * 両コンパイラで意図せぬ警告が出ないようにしている。
+ * 生成された全関数を毎回使い切るとは限らない（コンストラクタとdispatchだけ使い
+ * ゲッターは使わない、はごく普通）。GCCは未使用のstatic inline関数を警告しないが、
+ * Clangは -Wunused-function で警告するため、生成する全関数に SUM_MAYBE_UNUSED を
+ * 付与している。
  */
 #ifndef GENERIC_SUM_TYPE_H
 #define GENERIC_SUM_TYPE_H
@@ -170,6 +104,23 @@
 #define SUM_CTX_UNLOCK(ctx) ((void)0)
 #endif
 
+/* 不正なtag（マクロ経由以外でtagを破壊された等）でディスパッチされたときに呼ばれるフック。
+ * デフォルトは no-op。開発時は assert 等を差し込んで早期に検知できる。
+ *
+ *   #define SUM_UNHANDLED_TAG(self) assert(!"generic_sum_type: unhandled tag")
+ *   #include "generic_sum_type.h"
+ *
+ * 全5ディスパッチャ（MATCH / MATCH_CONST / DISPATCH / DESTROY / COPY）が、
+ * どのcaseにも一致しなかった場合にこのフックを呼ぶ。値を返す3つ
+ * （MATCH / MATCH_CONST / COPY）はフック呼び出し後に SUM_UNREACHABLE() へ進む
+ * （戻り値を用意できないため他に手がない）。void を返す2つ
+ * （DISPATCH / DESTROY）はフックを呼んで正常に復帰する。
+ * この非対称は「戻り値の有無」から導かれる帰結であり、意図的なものである
+ * （docs/adr/0010-unhandled-tag-hook.md）。 */
+#ifndef SUM_UNHANDLED_TAG
+#define SUM_UNHANDLED_TAG(self) ((void)(self))
+#endif
+
 /* ---- DEFINE_SUM_TYPE が使うアスペクトマクロ（1マクロ = 1関心事） ---- */
 
 #define SUM_TAG_ENTRY(NAME, EXTRA, TAG, TYPE)    NAME##_##TAG,
@@ -188,7 +139,7 @@
     }
 
 /* read-only 版ゲッター。const NAME* から呼べ、payload オブジェクト自体を const 化した
- * ポインタ（Type const*）を返す（4.14節）。可変ゲッター NAME_get_<tag> と併存する。
+ * ポインタ（Type const*）を返す（docs/adr/0009-non-breaking-const-support.md）。可変ゲッター NAME_get_<tag> と併存する。
  * 戻り型に west const（const TYPE*）ではなく east const（TYPE const*）を使うのは、
  * TYPE がポインタ型（例: const char*）のとき west const だと const が指す先に付いて
  * しまい &self->as.TAG（const NAME* 経由 = Type const*）と型不一致になるため。 */
@@ -209,6 +160,19 @@
     VARIANTS(SUM_GETTER, NAME, _)                                      \
     VARIANTS(SUM_GETTER_CONST, NAME, _)
 
+/* ---- tag 述語ジェネレータ ----
+ * 「今この SumType はどの variant か」を問う述語 NAME_is_<TAG>() を1個生成する。
+ * Either(left/right) と Result(ok/err) のヘルパはどちらもこれの2回呼び出しに
+ * すぎない。tag 名以外に差が無いものを別々の生成ロジックとして持つと、コアの
+ * 変更を二重に追従する保守コストが生じるため1箇所にまとめている
+ * （docs/adr/0005-either-result-thin-helpers.md と同じ理由）。
+ * left/right, ok/err 以外の2択（pending/done 等）にもそのまま使える。 */
+#define SUM_DEFINE_PREDICATE(NAME, TAG)                             \
+    SUM_MAYBE_UNUSED                                                \
+    static inline int NAME##_is_##TAG(const NAME *self) {          \
+        return self->tag == NAME##_##TAG;                          \
+    }
+
 /* ---- Either イディオム用ヘルパ ----
  * left / right の2 variant を持つ SumType（Either 相当）向けの述語を生成する。
  * DEFINE_SUM_TYPE で tag 名を left / right として定義したうえで本マクロを呼ぶ。
@@ -219,14 +183,8 @@
  * NAME_right という enum 定数が存在せずコンパイルエラーになる（規約違反が
  * そのまま検出される）。 */
 #define DEFINE_EITHER_HELPERS(NAME)                                 \
-    SUM_MAYBE_UNUSED                                                \
-    static inline int NAME##_is_left(const NAME *self) {           \
-        return self->tag == NAME##_left;                           \
-    }                                                               \
-    SUM_MAYBE_UNUSED                                                \
-    static inline int NAME##_is_right(const NAME *self) {          \
-        return self->tag == NAME##_right;                          \
-    }
+    SUM_DEFINE_PREDICATE(NAME, left)                                \
+    SUM_DEFINE_PREDICATE(NAME, right)
 
 /* ---- Result イディオム用ヘルパ ----
  * ok / err の2 variant を持つ SumType（Result<T,E> 相当）向けの述語を生成する。
@@ -235,17 +193,11 @@
  * NAME_get_ok / NAME_get_err（read-only は _const 版）、fold は
  * DEFINE_SUM_MATCH_CONST（ok/err 2ハンドラ）。
  * 注意: map / and_then のような「payload 型が変わる」関数合成(ROP)は、変換先が
- * 別の具体 Result 型になるため C では汎用化できない（design_spec 2.10節）。
+ * 別の具体 Result 型になるため C では汎用化できない（docs/constraints.md C-13）。
  * 同型変換や、目標型を明示した手書きの合成は可能。 */
 #define DEFINE_RESULT_HELPERS(NAME)                                 \
-    SUM_MAYBE_UNUSED                                                \
-    static inline int NAME##_is_ok(const NAME *self) {             \
-        return self->tag == NAME##_ok;                             \
-    }                                                               \
-    SUM_MAYBE_UNUSED                                                \
-    static inline int NAME##_is_err(const NAME *self) {            \
-        return self->tag == NAME##_err;                            \
-    }
+    SUM_DEFINE_PREDICATE(NAME, ok)                                  \
+    SUM_DEFINE_PREDICATE(NAME, err)
 
 /* ---- DEFINE_SUM_MATCH が使うアスペクトマクロ ---- */
 
@@ -262,6 +214,7 @@
         switch (self->tag) {                                                \
             VARIANTS(SUM_MATCH_CASE, NAME, RET_TYPE)                        \
         }                                                                    \
+        SUM_UNHANDLED_TAG(self);                                             \
         SUM_UNREACHABLE();                                                   \
     }
 
@@ -272,7 +225,7 @@
  * payload を書き換える用途では従来の DEFINE_SUM_MATCH（可変版）を使うこと。
  * east const を使う理由は SUM_GETTER_CONST と同じ（TYPE がポインタ型でも
  * payload オブジェクト自体に const を付けるため）。
- * 網羅性検査・順序取り違え検出は可変版と同一の仕組みで働く（3節）。
+ * 網羅性検査・順序取り違え検出は可変版と同一の仕組みで働く（docs/GUARANTEES.md G-001, G-002）。
  */
 
 #define SUM_MATCH_CONST_PARAM(NAME, RET_TYPE, TAG, TYPE)             \
@@ -288,6 +241,7 @@
         switch (self->tag) {                                                \
             VARIANTS(SUM_MATCH_CONST_CASE, NAME, RET_TYPE)                  \
         }                                                                    \
+        SUM_UNHANDLED_TAG(self);                                             \
         SUM_UNREACHABLE();                                                   \
     }
 
@@ -301,16 +255,26 @@
     , void (*NAME##_on_##TAG)(TYPE *, CTX_TYPE *)
 
 #define SUM_DISPATCH_CASE(NAME, CTX_TYPE, TAG, TYPE)                 \
-    case NAME##_##TAG: NAME##_on_##TAG(&self->as.TAG, ctx); break;
+    case NAME##_##TAG:                                                \
+        NAME##_on_##TAG(&self->as.TAG, ctx);                          \
+        sum_handled_ = 1;                                             \
+        break;
 
+/* 不正tag時に SUM_UNHANDLED_TAG を呼ぶために sum_handled_ フラグを使う。
+ * switch に default: を置けば同じことができるが、それをすると -Wswitch による
+ * 「enum定数を手で増やした場合の網羅性警告」が無効化されてしまうため採らない。
+ * ローカルフラグはフックが no-op のとき最適化で完全に消える
+ * （docs/adr/0010-unhandled-tag-hook.md）。 */
 #define DEFINE_SUM_DISPATCH(NAME, VARIANTS, DISPATCH_FN, CTX_TYPE)         \
     SUM_MAYBE_UNUSED                                                       \
     static inline void DISPATCH_FN(NAME *self, CTX_TYPE *ctx              \
         VARIANTS(SUM_DISPATCH_PARAM, NAME, CTX_TYPE)) {                    \
+        int sum_handled_ = 0;                                              \
         SUM_CTX_LOCK(ctx);                                                  \
         switch (self->tag) {                                               \
             VARIANTS(SUM_DISPATCH_CASE, NAME, CTX_TYPE)                    \
         }                                                                   \
+        if (!sum_handled_) { SUM_UNHANDLED_TAG(self); }                    \
         SUM_CTX_UNLOCK(ctx);                                                \
     }
 
@@ -333,6 +297,8 @@
         switch (self->tag) {                                               \
             VARIANTS(SUM_DESTROY_CASE, NAME, _)                            \
         }                                                                   \
+        /* 各caseは return; で抜けるため、ここに到達＝不正tag */             \
+        SUM_UNHANDLED_TAG(self);                                            \
     }
 
 /* 資源を持たないvariant向けの「何もしないデストラクタ」を生成するヘルパー */
@@ -360,6 +326,7 @@
         switch (self->tag) {                                               \
             VARIANTS(SUM_COPY_CASE, NAME, _)                               \
         }                                                                   \
+        SUM_UNHANDLED_TAG(self);                                            \
         SUM_UNREACHABLE();                                                  \
     }
 
@@ -392,13 +359,18 @@
         (void)sum_generic_unused_arg_;                                      \
         NAME sum_generic_zeroed_ = { 0 };                                   \
         return sum_generic_zeroed_;                                        \
+    }                                                                       \
+    SUM_MAYBE_UNUSED                                                        \
+    static inline void NAME##_assert_distinct_payloads_(void) {            \
+        struct NAME##_GenericPlaceholder_ sum_probe_ = { 0 };               \
+        (void)SUM_NEW(NAME, VARIANTS, sum_probe_);                          \
     }
 
 /* 呼び出し側はこの形で使う: SUM_NEW(NAME, VARIANTS, x)
  * NAMEとVARIANTSを毎回明示するのは、マクロ展開結果から新しい#defineを
  * 生成する手段がCのプリプロセッサに存在しないための制約であり、
  * DEFINE_SUM_TYPE等のように「1回呼べばNAME_new(x)という専用の名前が
- * 使えるようになる」形にはできない（design_spec.md 4.13節）。
+ * 使えるようになる」形にはできない（docs/adr/0008-generic-constructor-selection.md）。
  */
 #define SUM_NEW(NAME, VARIANTS, x) _Generic((x),                            \
     struct NAME##_GenericPlaceholder_: NAME##_new_unreachable_              \
