@@ -1,346 +1,70 @@
-# generic_sum_type.h 設計仕様書
+# design_spec.md — 移設マップ
 
-対象: `generic_sum_type.h`(N分岐ジェネリック直和型マクロライブラリ)
-対応C標準: C99以降(`static inline` 関数、指示付き初期化 `.tag = ..., .as.TAG = ...` を使用しているため。`static inline`はISO C 6.7.4 Function specifiers、指示付き初期化はISO C 6.7.8/6.7.9 Initializationでいずれも(since C99)の機能として規定されており、C89/C90には存在しない。詳細は4.12節参照)
-対応コンパイラ: GCC / Clang のみをサポート対象とする。**MSVCは意図的に非対応・検討もしない**(利用が想定される環境ではC++が使える場合が多く、C++であれば`std::variant`という標準の解が既に存在するため、MSVC向けにこのライブラリを移植するコストを払う理由がないという判断)。
+> **この文書は役割を終え、内容は目的別に分割された。以下は旧節番号から新しい置き場所への対応表である。**
 
-本書は「今、何が制約でなぜそう設計したか」という**結論**を引くためのリファレンスである。検証の経緯・訂正履歴・規格条文との突き合わせの詳細・見つかったバグの記録は [VERIFICATION_LOG.md](./VERIFICATION_LOG.md) にまとめてある。本書の各節は必要に応じてVERIFICATION_LOG.mdの対応する節番号を参照する形で相互リンクしている。
+## なぜ分割したか
 
-## 1. 目的と全体設計思想
+この文書は3つの責務を1ファイルに混載していた。
 
-C言語にはパラメトリック多相(ジェネリクス)が存在しないため、「任意個・任意型の直和型(タグ付き共用体)」を汎用的に扱うには、多相性の解決をどの段階で行うかを決める必要がある。本ライブラリは **コンパイル時のコード生成(X-Macro)** で解決する方式を採用した。
-
-検討した代替案と不採用の理由は以下の通り。
-
-| 方式 | 型安全性 | 実行時コスト | 採用しなかった理由 |
-|---|---|---|---|
-| void* + 実行時型タグ(type erasure) | コンパイラによる保証なし | heap確保・キャストのオーバーヘッド | 直和型の主目的である「コンパイル時に型の区別を保証する」という性質そのものを失うため |
-| 固定バッファ + vtable(std::variant的実装) | あり | ヒープ確保なしだが関数ポインタ登録の定型コードが必要 | 今回の用途に対して実装コストが見合わない |
-| 可変長マクロ(FOR_EACHマクロトリック)で1呼び出し形式にする | あり | なし | 自前のプリプロセッサ再帰トリックか外部ライブラリ(metalang99等)が必要になり、可読性・デバッグ容易性を損なう |
-| **X-Macro(採用)** | あり | なし | 型リストを1箇所で定義し複数の生成マクロから再利用できる。標準Cの範囲で完結し、エラーメッセージも比較的追いやすい |
-
-## 2. 提供するマクロとAPI仕様
-
-### 2.1 型リストの定義(ユーザーが書く部分)
-
-```c
-#define MY_VARIANTS(X, NAME, EXTRA) \
-    X(NAME, EXTRA, tag1, Type1)      \
-    X(NAME, EXTRA, tag2, Type2)      \
-    ...
-```
-
-`NAME` と `EXTRA` は生成マクロ側から渡される文脈引数であり、型リスト定義側は素通しするだけでよい。`EXTRA` の意味は呼び出すマクロ(`DEFINE_SUM_MATCH` か `DEFINE_SUM_DISPATCH` か)によって変わる(後述)。
-
-### 2.2 `DEFINE_SUM_TYPE(NAME, VARIANTS)`
-
-生成物:
-- `NAME_tag_t`(enum)
-- `NAME`(タグ付きunion構造体)
-- `NAME_new_<tag>(TYPE v)`(コンストラクタ)
-- `NAME_get_<tag>(NAME *self)`(タグが一致すればアドレスを、しなければNULLを返すゲッター)
-
-### 2.3 `DEFINE_SUM_MATCH(NAME, VARIANTS, match_fn_name, RetType)`
-
-生成物: `match_fn_name(NAME *self, RetType (*on_tag1)(Type1*), ...)`
-
-各ハンドラは「payloadだけを受け取り値を返す純粋関数」を想定。1つのSumTypeに対して用途ごとに複数回呼び出して構わない(例: 面積計算用の `Shape_area` と表示用の `Shape_print` を両方生成できる)。
-
-なお現状の `DEFINE_SUM_MATCH` は `NAME *self`(非const)を取り、ハンドラも可変の `TYPE *` を受け取る。read-only 用途で `const NAME *` から呼びたい場合は、非破壊で追加する const 版(4.14節の `DEFINE_SUM_MATCH_CONST` / const 対応ゲッター)を用いる。
-
-### 2.4 `DEFINE_SUM_DISPATCH(NAME, VARIANTS, dispatch_fn_name, CtxType)`
-
-生成物: `dispatch_fn_name(NAME *self, CtxType *ctx, void (*on_tag1)(Type1*, CtxType*), ...)`
-
-各ハンドラは payload に加えて共有コンテキスト(`ctx`)への書き込みという副作用を伴うことを前提とする。戻り値は常に `void` に固定している。
-
-**設計判断:** `DEFINE_SUM_MATCH` を拡張して「ctxありでもなしでも使える」万能マクロにする案もあったが、それだと呼び出し側がマクロ定義を読みに行かないと「今回はctxが要るかどうか」を判断できなくなる。契約(シグネチャ)が異なるものをマクロ名レベルで分けることで、呼び出し箇所を見ただけで契約がわかる状態を優先した。責務分割を関数命名の一貫性より優先した例である。
-
-### 2.5 `DEFINE_SUM_DESTROY(NAME, VARIANTS, destroy_fn_name)`
-
-生成物: `destroy_fn_name(NAME *self, void (*on_tag1)(Type1*), ...)`
-
-variantがheap確保された文字列やバッファなどのポインタ資源を持つ場合の解放処理を、`DEFINE_SUM_MATCH`/`DEFINE_SUM_DISPATCH` と同じ網羅性検査付きディスパッチの枠組みで実現する。資源を持たないvariantには `SUM_DEFINE_NOOP_DESTROY(fn_name, Type)` で生成した「何もしない関数」を渡せばよい。
-
-**設計判断:** `DEFINE_SUM_DISPATCH` を流用(`CtxType`を`void`扱いにする等)することも検討したが、デストラクタは「共有状態への書き込み」ではなく「そのvariant自身の後始末」という別の関心事であるため、ctxを持たない専用のマクロとして独立させた。
-
-### 2.6 `DEFINE_SUM_COPY(NAME, VARIANTS, copy_fn_name)`
-
-生成物: `NAME copy_fn_name(const NAME *self, Type1 (*copy_tag1)(const Type1*), ...)`
-
-variantがポインタ資源を持つ場合のディープコピー(例: `strdup`)を行う。値そのものを複製すればよいPODなvariantには `SUM_DEFINE_IDENTITY_COPY(fn_name, Type)` で生成した「浅いコピー(実質的にはそのままコピー)」関数を渡せばよい。
-
-`resource_demo.c` で、heap確保した文字列を持つ `MsgText` variantと、資源を持たない `MsgNumber` variantが混在するSumTypeに対して `DEFINE_SUM_DESTROY` / `DEFINE_SUM_COPY` を適用する例を実装し、AddressSanitizer付きビルドでリーク・二重解放がないことを確認済み。
-
-```
---- Textバリアント: ディープコピーの確認 ---
-  strdup: 0x502000000010 (元) -> 0x502000000030 (複製)
-original.str=0x502000000010 copy.str=0x502000000030 -> 別アドレス(ディープコピー成功)
-  free(0x502000000010) "hello"
-  free(0x502000000030) "hello"
---- Numberバリアント: identity copyの確認 ---
-number original=42 copy=42
-```
-
-### 2.7 スレッドセーフティ: `SUM_CTX_LOCK` / `SUM_CTX_UNLOCK` フック
-
-`DEFINE_SUM_DISPATCH` が生成する関数は、switch文の前後で `SUM_CTX_LOCK(ctx)` / `SUM_CTX_UNLOCK(ctx)` を呼ぶ。デフォルトは何もしない(no-op)マクロとして定義されており、ロックが必要な場合は本ヘッダをincludeする前に利用側で再定義する。
-
-```c
-#define SUM_CTX_LOCK(ctx)   pthread_mutex_lock(&(ctx)->mutex)
-#define SUM_CTX_UNLOCK(ctx) pthread_mutex_unlock(&(ctx)->mutex)
-#include "generic_sum_type.h"
-```
-
-**設計判断:** ロックプリミティブをライブラリに直接埋め込まず、フックとして外出しした。理由はRTOS(FreeRTOSのセマフォ等)とLinux(pthread_mutex等)で使えるロック機構が異なり、どちらか一方に依存する実装をライブラリ本体に持たせると他方の環境で使えなくなるため。フック方式であれば、ロックが不要な用途では追加コストがゼロ(no-opはコンパイラの最適化で消える)で、必要な環境では利用側の都合に合わせたプリミティブを差し込める。ロックの粒度(dispatch呼び出し単位で十分か、もっと粗い単位にすべきか)はアプリケーション側の責務としてライブラリの関知するところではない。
-
-なお、ロック区間は `SUM_CTX_LOCK(ctx)` からハンドラ本体を含む switch 全体を経て `SUM_CTX_UNLOCK(ctx)` までを1つの区間とする粗い粒度である。この帰結としてハンドラ内から同一 `ctx` へ再入した場合の挙動に注意が必要であり、詳細は4.8節にまとめた。
-
-**検証:** `threadsafe_dispatch_demo.c` でpthread_mutexをフックに差し込み、+1と-1を行うスレッドをそれぞれ4本ずつ走らせて最終値が期待通り0になることを3回連続で確認した。また比較のためフックを意図的にno-opのままにした版(`race_check.c` 相当)では、8スレッドが単純にincrementするだけの単純なケースでも期待値1,600,000に対し実測92万〜65万程度までばらつくlost updateが再現することを確認し、**フックが実際に競合を防いでいること**を実測で裏付けた。
-
-### 2.8 `DEFINE_SUM_NEW_GENERIC` / `SUM_NEW`(C11以降限定のオプトイン機能)
-
-```c
-DEFINE_SUM_NEW_GENERIC(NAME, VARIANTS)   // 補助の型・関数を1回だけ生成
-SUM_NEW(NAME, VARIANTS, x)               // 呼び出し側はこの形で使う
-```
-
-C11の`_Generic`を使い、渡した値の**型**だけから`NAME_new_<tag>()`を自動選択する糖衣構文。既存のコンストラクタは呼び出し側がタグ名(`i`/`s`/`f`等)を正しく覚えて綴る必要があったが、これを型だけで解決できるようにする。
-
-**動機:** 関数テーブル方式(homogeneous function pointer table)も検討したが、全ハンドラを共通シグネチャに揃える必要があり3節の型安全性(渡し忘れ検出・順序取り違え検出)を失う退行になるため不採用にした。`_Generic`によるコンストラクタの自動選択は、記述量を減らしつつ2大保証のどちらも犠牲にしない(むしろ3節の「型を使い回さない」ガイドライン違反を新たに検出できる)ため採用した。
-
-**設計上の制約: `NAME_new(x)`という専用マクロは生成できない。** Cのプリプロセッサはマクロ展開結果の中から新しい`#define`ディレクティブを起こす機能を持たないため、`DEFINE_SUM_NEW_GENERIC`が生成できるのは補助の型・関数のみであり、実際のディスパッチは`NAME`と`VARIANTS`を毎回明示する`SUM_NEW`という単一の共通マクロが担う。**ただし利用側が自分で`#define NAME_new(x) SUM_NEW(NAME, VARIANTS, x)`と1行書くこと自体は制限されておらず、これが推奨イディオムである**(`DEFINE_SUM_NEW_GENERIC`の直後に書く。C99/C11双方で動作)。
-
-**既知の制約(型の完全一致・末尾コンマ回避・検出タイミング):** `_Generic`は型が完全一致しないと選択できず、暗黙の型変換に頼れない(3節の「専用structでラップする」ガイドラインに従っていれば実害はない)。型の使い回し検出は`DEFINE_SUM_NEW_GENERIC`を呼んだ時点ではなく、実際に`SUM_NEW`を呼んで`_Generic`が展開された箇所で発火する。検証の詳細・訂正の経緯はVERIFICATION_LOG.md 2.8節を参照。
-
-**運用: C11限定機能をCIに乗せる実務コスト。** ヘッダ側の`#if`ガードだけでは、`SUM_NEW`を実際に呼ぶ利用側ファイル(examples/tests)がC99ビルドで壊れる。対策として、該当ファイルはファイル全体を同じ`__STDC_VERSION__`ガードで分岐させる構成にした(詳細はVERIFICATION_LOG.md 2.8節)。
-
-### 2.9 Either イディオム(`DEFINE_EITHER_HELPERS`)
-
-`Either<L, R>` は variant が `left` / `right` の2つに固定された直和型である。variant 集合が固定であるため、一般の SumType と違って型リストマクロを新たに用意する概念的必要はない(利用側は tag 名を `left` / `right` とした2 variant を書くだけ)。
-
-**設計判断: 専用ジェネレータ(`DEFINE_EITHER(NAME, L, R)` のような1マクロ)ではなく、コア再利用の薄いヘルパにした。** 専用ジェネレータなら1行で書けてエルゴノミクスは良いが、enum・struct・コンストラクタ・ゲッターの生成ロジックを `DEFINE_SUM_TYPE` と別に持つことになり、コアの変更(例: `SUM_MAYBE_UNUSED` の付与方針変更、east const 化のような修正)を二重に追従する保守コストが生じる。本ライブラリは保守性・変更容易性を重視するため、`DEFINE_SUM_TYPE` をそのまま使い、Either 固有なのは「`left`/`right` という tag 規約」と「`is_left`/`is_right` の述語」だけに絞った(`DEFINE_EITHER_HELPERS`)。fold は `DEFINE_SUM_MATCH_CONST`、取り出しは既存の const ゲッターで賄えるため、新設は述語のみで足りる。
-
-**制約:** L と R が同一型だと fold ハンドラの左右取り違え検出が効かない(3節の既知の限界がそのまま該当。専用 struct でラップして別型にする)。`DEFINE_EITHER_HELPERS` は `left`/`right` の tag 規約に依存し、違う tag 名に使うと `NAME_left`/`NAME_right` が存在せずコンパイルエラーになる(規約違反がそのまま検出される)。実例は `examples/either_demo.c`、単体テストは `test_generic_sum_type.c` のケース7。
-
-### 2.10 Result イディオム(`DEFINE_RESULT_HELPERS`)と ROP の限界
-
-`Result<T, E>` は Either の `ok`/`err` 版であり、2.9節と同じ「コア再利用の薄いヘルパ」方針で `DEFINE_RESULT_HELPERS`(`is_ok`/`is_err`)を提供する。構築・取り出し・fold は既存 API(`DEFINE_SUM_TYPE` のコンストラクタ/ゲッター、`DEFINE_SUM_MATCH_CONST`)で賄えるため、新設は述語のみ。`unwrap_or` は `T` 型を知る必要があるため汎用ヘルパにはせず、利用側で1行書く(実例 `examples/result_demo.c`)。
-
-**重要な限界(Railway Oriented Programming が汎用化できない):** Rust/F# の `map` / `and_then` / `map_err` のように **payload 型が変わる**関数合成は、C では汎用に書けない。理由は、`map: Result<T,E> → Result<U,E>` の変換先 `Result<U,E>` が `Result<T,E>` とは別の具体型(別 typedef)になるが、C にはパラメトリック多相も戻り値型推論も無く、マクロは呼び出し側で目標型を生成できない(`#define` をマクロ展開から起こせない制約=4.13節と同根)ため。したがって書けるのは (a) 同型変換(`T → Result<T,E>`。`result_demo.c` の `and_then` がこれ)、(b) 型を変える段ごとに目標の `Result` 型を明示して手書きする合成、のいずれか。流れるようなチェーンは言語機能の制約でそのままは再現できない、というのが本ライブラリ(および C 一般)のスコープ判断である。この点は「値としてのエラー表現(直和型・網羅 match・述語・fold)は素直に書けるが、関数“合成”は言語特性に依存する」という一般論の一例でもある。
-
-## 3. 網羅性検査の仕組みと限界
-
-生成される `match_fn_name` / `dispatch_fn_name` の引数リストは `VARIANTS` から自動生成されるため、引数の個数は「その時点でのvariant数」と常に一致する。したがって:
-
-- variantを1個追加すると、生成関数の必須引数も1個増える。
-- 既存の呼び出し側がハンドラを渡し忘れていれば、**通常の関数呼び出しの引数個数チェック**として `too few arguments to function` がコンパイルエラーになる。
-
-これは `-Wswitch` のようなビルドフラグの運用に依存せず、C言語標準の関数プロトタイプチェックだけで保証される(実機検証済み)。
-
-**Rustのmatchとの違い(限界):**
-- switch文自体には `default:` を置いていない。これは `NAME_tag_t` を誰かがマクロ経由以外で直接いじった場合の保険であり、`-Wswitch`(通常 `-Wall` に含まれる)を有効にしていればその場合も警告される。ただし現状の運用ではこの保険が発動する状況(enumを手動で拡張する)は想定していない。
-
-**ハンドラの渡し順を間違えるケースについて:** 各ハンドラの型は `RetType (*)(Type1*)` のように**variantごとのペイロード型で固有**になっているため、2つのvariantのペイロード型が異なっていれば、順序を入れ替えて渡すと `-Wincompatible-pointer-types` が発生し、`-Werror` 運用下ではコンパイルエラーになる(実機検証済み)。検出できない残存ケースは、**2つ以上のvariantが文字通り同一の型(例えば両方とも素の `int32_t`)をペイロードに使っている場合**に限られる。この場合は関数ポインタの型も完全に一致してしまうため、順序を入れ替えてもコンパイラは区別できない。
-
-対策として次の設計ガイドラインを採用する。
-
-- **ペイロードに素の基本型(`int`, `double` など)を直接使わず、たとえ1フィールドでも専用の `struct` にラップする。** `shape_demo.c` / `command_demo.c` で採用した「各variantに専用struct」という方針は、この「ハンドラ取り違え検出」の観点からも有効に働く(実質的にRustのnewtypeパターンに相当する)。
-- ビルドは必ず `-Wall -Wextra -Werror` を有効にする。`-Werror` を付けないと `-Wincompatible-pointer-types` は警告止まりで通ってしまう。
-
-この2点を守れば、「渡し忘れ」と「渡し間違い」の両方がコンパイルエラーとして検出できる設計になっている。完全に無敵ではない(同一構造の型を意図的に複数variantで使い回すレアケースは依然すり抜ける)が、実務上は十分な保証だと考える。検証の経緯(実機での確認内容)はVERIFICATION_LOG.md 3節を参照。
-
-## 4. 実装していないこと・既知の制約
-
-### 4.1 所有権・メモリ管理(`DEFINE_SUM_DESTROY` / `DEFINE_SUM_COPY` で対応済み)
-
-`DEFINE_SUM_DESTROY` / `DEFINE_SUM_COPY` によって、ポインタ資源を持つvariantの解放・ディープコピーを網羅性検査付きで行えるようにした(2.5, 2.6節参照)。ただしRustのenumのように「スコープを抜けたら自動的にデストラクタが呼ばれる」という仕組みではない。**呼び出し忘れ自体を防ぐ仕組みはない**(Rustのownership/borrow checkerに相当するものはCにはないため、`Message_destroy()` を呼び忘れてもコンパイルエラーにはならず単にリークするだけ)。この点は「渡し忘れの検出」(3節)とは別の話であることに注意。あくまで「呼べば正しく網羅的に処理される」ところまでの保証であり、「呼ぶこと自体の強制」は対象外。
-
-### 4.2 再帰的な直和型は意図的にサポート対象外
-
-`enum List { Cons(i32, Box<List>), Nil }` のような自己参照する直和型は、union内に自分自身の型を直接埋め込めない(Cでは不完全型はunion/structメンバにできない)ため、TYPEに `struct Node*` を渡し、heap確保・解放・所有権管理をすべて手動で書く必要がある。**規格上の根拠(ISO C 6.7.2.1 Structure and union specifiers, C11 p.112-117 / C99 p.101-104):** struct-declaration-listのメンバには不完全型を置けないという制約があり、struct/union自身はその定義(`}`)が終わるまで不完全型として扱われる(構造体・共用体の入れ子で「自分自身へのポインタは可、自分自身の値は不可」となる根拠)。したがって `union { ...; List self; }` のような値埋め込みは規格上そもそも構文として成立せず、`List *self` のようなポインタ経由に限られる。この点で本ライブラリの制約は言語仕様そのものの制約であり、マクロ実装固有の制約ではない。これは「未実装」ではなく**意図的に対応しない設計判断**とする。再帰的データ構造の安全な表現(所有権・ドロップ順序の保証)はRustの型システムが得意とする領域であり、Cのマクロで無理に再現するとGC/所有権チェッカーの車輪の再発明になり実装・保守コストに見合わない。再帰構造が必要な場面ではRust(あるいは既存のCの侵入型データ構造ライブラリ)を使うべき、というのがこのライブラリのスコープ判断である。
-
-### 4.3 カプセル化がない
-
-`NAME_get_<tag>()` はタグをチェックしてNULLを返す安全なアクセサだが、`self->as.TAG` に直接アクセスすればこのチェックをすり抜けられる。union memberは常にpublicであり、Cには真のカプセル化機構がないため、この安全性は「規約(ゲッター経由でのみ触る)」に依存する。コードレビューで担保する必要がある。
-
-### 4.4 1variant = 1型という制約
-
-Rustの `Variant(i32, String)` のような複数フィールドを持つタプルバリアントは直接表現できない。事前にstructにまとめる必要がある(`shape_demo.c` / `command_demo.c` で採用した方式)。これは設計上の制約というより「1つの型にまとめて渡す」という運用ルールとして周知する必要がある。
-
-### 4.5 TYPEに関数ポインタ型のような複雑な型を直接渡せない(実機検証済み)
-
-`SUM_UNION_MEMBER`/`SUM_CTOR`/`SUM_GETTER` が生成する宣言は `TYPE 識別子;` という「型名を前に置き識別子をそのまま続ける」パターンを前提にしている。これは構造体・基本型・単純なポインタ型には有効だが、関数ポインタ型は宣言子の構文上、識別子を型の内側(`TYPE (*識別子)(引数型...)`)に埋め込む必要があるため、このパターンに当てはまらずコンパイルエラーになる。
-
-対策は`typedef`で型名を単一トークンにしてから渡すこと。
-
-```c
-typedef void (*Callback)(int, int);   /* 型名を単一トークンにする */
-#define V(X, NAME, EXTRA) X(NAME, EXTRA, cb, Callback)
-```
-
-`gcc -std=c99/c11/c17 -pedantic -Wall -Wextra -Werror` すべての組み合わせでコンパイル・実行成功を確認済みで、`tests/test_compile_guarantees.sh` にケース5(typedefなしの関数ポインタ型→コンパイル失敗)・ケース6(typedef後→コンパイル成功)として回帰テスト化した。
-
-**配列型はtypedefだけでは解決しない、より強い制約がある。** `int[3] member;`という宣言はそもそも文法違反だが、`typedef int IntArr3[3];`で型名を単一トークンにすれば構造体メンバー宣言としては機能する。しかし配列型は関数引数境界で暗黙にポインタ型へ読み替えられる(C11 6.7.6.3p7)ため、typedef後もコンストラクタ関数の引数としては正しく機能しない(`sizeof`を前提にしたコピー処理が範囲外読み出しになり、実機で不定値が返ることを確認済み)。配列型はそもそもC言語において代入・値渡し・値の戻り値のいずれもできない型であり、typedefは宣言構文の問題を解決するだけで値セマンティクスの問題を解決しない。
-
-**配列をペイロードにしたい場合は、3節が既に推奨している「専用structでラップする」ガイドラインが唯一の正しい解決策である。** structは通常の値セマンティクス(代入・値渡し・値の戻り値)を持つため、`struct { int v[3]; } IntArr3Box;`のように包めば構造体代入だけで配列メンバも含めて正しく値コピーされる(実機確認済み)。**ペイロードには単純な型・ポインタ型・typedef済みの関数ポインタ型か、配列を含む場合は必ずstructでラップした型のみを渡す**、という運用ルールとして一般化しておく。
-
-検証の経緯(当初の誤った仮説と訂正過程)はVERIFICATION_LOG.md 4.5節を参照。
-
-### 4.6 コンパイラ依存部分
-
-`SUM_UNREACHABLE()` はGCC/Clangの `__builtin_unreachable()` に依存しており、それ以外のコンパイラでは `abort()` にフォールバックする。フォールバック時は「コンパイル時の保証」ではなく「実行時にクラッシュする」形になる点に注意。また `-Wswitch` を用いた保険的な網羅性チェックもGCC/Clang前提。**MSVCは1章に記載の通りサポート対象外と決定しているため、これ以上の検討は行わない。**
-
-**規格上の位置づけ:** `__builtin_unreachable()` と `SUM_MAYBE_UNUSED`(`__attribute__((unused))`)はいずれもISO Cの規定するキーワード・標準ライブラリ関数ではなく、GCC/Clangが独自に提供する処理系拡張(vendor extension)である。ISO C標準そのものには対応する条項が存在しない(規格は「未定義の識別子を使った場合の動作」を規定するのみで、拡張機能を個別に列挙してはいない)。裏を返せば、この節で挙げている制約は「規格を読み込めば回避できる制約」ではなく「そもそも規格の対象外の機能に依存している」という性質のものであり、4.2/4.5/4.7/4.9/4.10節のような規格条文との突き合わせが原理的に成立しない領域である。
-
-### 4.7 `DEFINE_SUM_MATCH` に `RetType = void` を渡すのは非推奨(検証済みの制限)
-
-`DEFINE_SUM_MATCH(..., void)` は多くの環境でコンパイルは通るが、`-std=c11 -pedantic` を付けると `ISO C forbids 'return' with expression, in function returning void` という警告が出る(`case NAME_tag: return handler();` の `handler()` がvoidを返す関数呼び出しのため)。これはISO C 6.8.6.4により診断が要求される明確な制約違反であり(コンパイラが警告止まりで許容しているだけ)、`-Werror -pedantic` を運用しているプロジェクトではビルドが壊れる。**void用途には `DEFINE_SUM_DISPATCH` を使うこと**を明確なルールとして扱う。規格条文突き合わせの詳細はVERIFICATION_LOG.md 4.7節を参照。
-
-### 4.8 スレッドセーフティ(`SUM_CTX_LOCK`/`SUM_CTX_UNLOCK`フックで対応済み)
-
-`DEFINE_SUM_DISPATCH` に `SUM_CTX_LOCK`/`SUM_CTX_UNLOCK` フックを追加し、利用側でロックプリミティブを差し込めるようにした(2.7節参照)。ただしデフォルトはno-opであり、**フックを再定義し忘れた場合に「気づかず排他制御なしで動く」リスクは残る**。コンパイル時にロックの有無を強制する仕組みはない(無効化がコンパイルエラーにならない設計なので、複数スレッドから使うctxかどうかをコードレビューで確認する運用が必要)。また `DEFINE_SUM_MATCH` / `DEFINE_SUM_DESTROY` / `DEFINE_SUM_COPY` にはロックフックを付けていない(これらは戻り値を持つ純粋関数またはctxを持たない設計であり、通常は呼び出し元が結果を受け取ってから自分のスコープ内で処理するため、ライブラリ内部でのロックが必要になる想定をしていない)。
-
-**再入(recursive dispatch)によるデッドロックに注意(要文書化のハザード)。** `DEFINE_SUM_DISPATCH` が生成する関数は、`SUM_CTX_LOCK(ctx)` からハンドラ本体を含む switch 全体を経て `SUM_CTX_UNLOCK(ctx)` までを1つのロック区間とする(2.7節)。この粒度の帰結として、**あるハンドラが同一の `ctx` に対して直接または間接に別の dispatch を呼び返すと、`SUM_CTX_LOCK` に非再帰ロック(`pthread_mutex` のデフォルトや多くのRTOSセマフォ等)を差し込んでいる場合は自己デッドロックする。** これは実装バグではなく、ロック区間がハンドラ実行全体を包むという設計選択の必然的な帰結である(7節のロック解放漏れバグとは別件)。対策は次のいずれか。
-
-- **規約で回避する(推奨):** ハンドラ内で同一 `ctx` への再 dispatch を行わない。dispatch はコマンド1件の適用で完結させ、連鎖が必要ならロック区間の外(呼び出し元のスコープ)で次の dispatch を発行する。
-- **再入対応ロックを差し込む:** 再入が設計上避けられない場合は、`SUM_CTX_LOCK` に再帰対応プリミティブ(`PTHREAD_MUTEX_RECURSIVE` で初期化した mutex、RTOSでは再帰対応ミューテックス)を差し込む。
-
-なお、`self->tag` が不正な値(マクロ経由以外で破壊された等)で dispatch した場合でも、switch はどの case にも入らずそのまま `SUM_CTX_UNLOCK` に到達するため、**LOCK/UNLOCK の対応は崩れずロック解放漏れは起きない**(no-opフックで呼び出し回数が 1:1 で釣り合うことを実機で確認済み)。
-
-### 4.9 メモリレイアウトはコンパイラ依存
-
-unionのサイズは最大variantのサイズになるが、padding/alignmentの詳細はコンパイラ依存であり、Rustのenumが持つniche optimization(タグ分を追加サイズなしで詰め込む最適化)に相当する仕組みはない。**規格上の根拠(ISO C 6.7.2.1 Structure and union specifiers, C11 p.112-117 / C99 p.101-104):** unionのサイズは「最大のメンバを保持できるだけの大きさ」とだけ規定されており、末尾に追加のパディングが入ってよいことも明記されている。structの側についても、メンバ間および最終メンバの後ろに名前のないパディングが入ってよい(ただし先頭メンバの前には入らない)とされ、構造体全体のサイズはメンバサイズの合計以上とだけ規定される。つまり「padding/alignmentの詳細を規定しない」というのは実装の手抜きではなく、規格が意図的に処理系定義(implementation-defined)としている領域であり、`sizeof`の値をコンパイラ間で一致させる保証は最初から存在しない。この点は本ライブラリの制約というより、C言語のstruct/union全般に共通する性質である。
-
-### 4.10 複数翻訳単位での共有(実機検証済み)
-
-推奨運用(型定義を1つの共通ヘッダに1回だけ書き、複数の`.c`からincludeする)は問題なく動作する。`gcc -std=c99/c11/c17 -pedantic -Wall -Wextra -Werror`および`-flto`(リンク時最適化)いずれの組み合わせでも2TU構成でのビルド・実行に問題がないことを確認済み(`tests/test_compile_guarantees.sh` ケース7)。
-
-理論的な根拠として、`DEFINE_SUM_TYPE`/`DEFINE_SUM_DISPATCH`等が生成する関数はすべて`static inline`(内部リンケージ)であり、TU間で共有される外部シンボルが一つも存在しないため、匿名union/structの型がISO C 6.2.7の意味で複数TU間互換とみなされるかという論点自体が、本ライブラリの使い方の範囲では問う必要のない問いになっている(規格条文の突き合わせの経緯はVERIFICATION_LOG.md 4.10節を参照)。
-
-**運用上の注意:** 「同じマクロ呼び出しを、共通ヘッダを介さずに複数の`.c`ファイルへコピー&ペーストする」運用は避けること。その場合は字面上同一でも独立した定義として扱われ、上記の検証結果は当てはまらない(未検証)。**必ず共通ヘッダを1つ作り、複数の`.c`からincludeする**という運用ルールを守ること。
-
-### 4.11 デバッグ容易性(実測に基づく評価)
-
-X-Macroによるコード生成は、通常の手書き関数と比べてデバッグのしやすさに次のようなトレードオフがある。
-
-**しづらくなる点:**
-
-- **マクロ定義自体のバグが追いにくい。** 実際に本ライブラリの実装中、`SUM_DISPATCH_CASE` が `return;` で抜けるせいで後段の `SUM_CTX_UNLOCK` がスキップされ、ロックを取得したまま解放しないバグを作り込んだ(7節参照)。生成された関数の「見た目」を読んでも気づきにくく、マクロの展開結果を意識しないと発見できない類のバグである。
-- **最適化ビルドでは `static inline` 関数がインライン化されて消える。** 実際に確認したところ、`-O0 -g` では `Command_dispatch` がシンボルとして残り名前でブレークポイントを張れるが、`-O2 -g` ではインライン化されてシンボルが消え、名前でのブレークポイント設定ができなくなる。
-
-  ```
-  -O0 -g: 0000000000000098 t Command_dispatch   (シンボルが存在する)
-  -O2 -g: (該当なし。mainに完全にインライン化されている)
-  ```
-
-  デバッグ時は `-O0 -g` でビルドし直す運用が実質必須になる。
-- **型リスト定義(X-Macro)の構文ミスは、間違えた箇所ではなく `DEFINE_SUM_TYPE(...)` などの呼び出し行にエラーが出る。** 継続行の `\` を付け忘れた際に「unterminated #ifndef」という一見無関係なエラーが出た実例がある。
-
-**緩和されている点:**
-
-- 生成される関数名(`Command_dispatch`, `Shape_area` 等)はC++テンプレートのようにマングルされず、素のC関数としてバックトレースに出る。テンプレートを使い倒したC++コードのスタックトレースより読みやすい。
-- enumのタグ値も `Command_move` のように意味のある名前を持つため、デバッガで `self->tag` を表示すればそのまま読める(無名intのタグ値を睨む事態にはならない)。
-- 生成された関数はすべて普通のC関数なので、個別に単体テストが書ける(特別なテストフレームワークのトリックは不要)。
-- 網羅性検査・順序取り違え検出のコンパイルエラーは長いノートチェーンが出るが(3節参照)、内容自体は正確に原因を指し示しており、量は多いが読めば追える。
-
-**実務上の運用ルール:**
-
-- デバッグ時は `-O0 -g` でビルドする
-- マクロ展開後の実コードを確認したいときは `gcc -E -std=c11 foo.c | clang-format` で見る
-- エラーは「呼び出し行」だけでなく「マクロ定義側の行」まで含めてnoteを最後まで読む
-
-### 4.12 C言語規格書との突き合わせ検証
-
-4.1〜4.11節の主張のうち、実機での動作確認だけでなくISO C規格条文まで遡って裏付けを確認したものの一覧・検証結果・情報源についての注記・そこから得られた教訓は VERIFICATION_LOG.md 4.12節にまとめてある。結論として4.2/4.5/4.9/冒頭の対応C標準の主張は規格条文により裏付けられ、4.7/4.10/2.8の一部の主張は「グレー」という曖昧な当初の記述から、規格条文に基づくより正確な表現に訂正された。
-
-### 4.13 `DEFINE_SUM_NEW_GENERIC` / `SUM_NEW` の既知の制約(C11以降限定)
-
-2.8節で導入した機能の設計判断・検証プロセスの詳細は2.8節を参照。ここでは他の4節の各項目と並ぶ「既知の制約」として要点のみ列挙する。
-
-- **C11以上必須。** `_Generic`自体がC99に存在しないため、`__STDC_VERSION__ >= 201112L`でヘッダ側をガードしている。C99ビルドでは`DEFINE_SUM_NEW_GENERIC`/`SUM_NEW`いずれも定義されない。
-- **`NAME_new(x)`のような専用マクロは生成できない。** Cのプリプロセッサはマクロ展開結果から新しい`#define`を起こせないため(実機検証済み)、呼び出し側は`SUM_NEW(NAME, VARIANTS, x)`という形でNAMEとVARIANTSを毎回明示する必要がある。他の`DEFINE_SUM_*`と一貫しない呼び出し方になる点は、この機能固有の非対称性として認識しておくこと。**ただし利用側が`DEFINE_SUM_NEW_GENERIC(NAME, VARIANTS)`の直後に`#define NAME_new(x) SUM_NEW(NAME, VARIANTS, x)`と自分で1行書けば、`NAME_new(x)`という短い記法で呼べる(C99/C11双方で動作確認済み、8節参照)。この制約はライブラリ側が自動生成できないことを意味するのみで、C標準のバージョンとは無関係である。**
-- **型の完全一致が必要。** 暗黙の型変換に頼れず、ポインタが指す先のconst有無も別の型として扱われる。3節の「専用structでラップする」ガイドラインに従っていれば実害はない。
-- **型の使い回し検出は`SUM_NEW`を実際に呼んだ箇所でのみ発火する。** `DEFINE_SUM_NEW_GENERIC`単体を呼んだだけでは検出されない(当初の理解を訂正。2.8節参照)。
-- **C11限定機能をCIに乗せるには、利用側ファイルの自己ガードが別途必要。** ヘッダ側の`#if`だけでは、この機能を呼び出す側のexamples/testsファイルがC99ビルドで壊れる。詳細は2.8節「運用: C11限定機能をCIに乗せる実務コスト」を参照。
-
-### 4.14 const 正しさ: read-only 操作でも `const NAME*` を受け取れない(既知のギャップ・非破壊で対応予定)
-
-`DEFINE_SUM_COPY` の source 側は `const NAME *` / `const TYPE *` を正しく取る一方、`DEFINE_SUM_MATCH` / `DEFINE_SUM_DISPATCH` / `DEFINE_SUM_DESTROY` および `NAME_get_<tag>()` はいずれも非const の `NAME *` を取り、MATCH のハンドラも可変の `TYPE *` を受け取る。このため、面積計算・print・ゲッターのような**意味的には read-only な操作**であっても、呼び出し側が `const NAME *` を保持していると const を捨てるしかない(`gcc -Werror` で `passing argument 1 ... discards 'const' qualifier` エラーになることを実機で確認済み)。これは MATCH が「payload だけを受け取る純粋な変換関数を想定」しているという設計意図(2.3節)と、実際の型シグネチャが可変アクセスを要求している点との不一致であった。
-
-**対応方針(非破壊・追加):** 既存の `DEFINE_SUM_MATCH`(可変)とゲッター `NAME_get_<tag>()` は後方互換のためそのまま温存し、read-only 用途に const 版を**追加**する。既存の利用側ハンドラの署名を一斉に変更する破壊的アプローチは採らない。
-
-- `DEFINE_SUM_MATCH_CONST(NAME, VARIANTS, MATCH_FN, RET_TYPE)` — `RET_TYPE MATCH_FN(const NAME *self, RET_TYPE (*on_tag)(const TYPE *), ...)` を生成する。payload を書き換えない純粋な変換(面積計算・分類・整形など)に用いる。
-- `NAME_get_<tag>_const(const NAME *self)` — `const TYPE *` を返す const 対応ゲッター。既存の可変ゲッター `NAME_get_<tag>()` と併存させる。
-
-**トレードオフ・設計判断:**
-
-- **なぜ破壊的 const 化を採らないか:** MATCH 全体を `const NAME *` + ハンドラ `const TYPE *` に一斉変更する案は型として最も正しいが、既存の全ハンドラの署名改修を強制する破壊的変更になるため見送った(利用側コードの回帰リスクに見合わない)。
-- **非破壊追加のコスト:** API 表面積が増え、「可変版と const 版のどちらを使うか」という選択ルールを利用者に周知する必要がある。運用ルールは明快で、**payload や共有状態を書き換えるなら可変版(`DEFINE_SUM_MATCH` / `DEFINE_SUM_DISPATCH`)、書き換えないなら const 版**とする。
-- **DISPATCH / DESTROY は対象外:** これらは副作用(payload や ctx の書き換え)を持つことが前提であり、可変シグネチャのままで正しい。const 化の対象は read-only を意図する MATCH とゲッターに限る。
-
-(マクロ名 `DEFINE_SUM_MATCH_CONST` / `NAME_get_<tag>_const` は暫定であり、実装時に確定する。実装後は api_reference.md にシグネチャを追記する。)
-
-## 5. テストスイート
-
-これまでの動作確認は `shape_demo.c` 等のデモプログラムでのprintf目視確認と、検証のたびに使い捨てで書いていた `/tmp` 配下のスクラッチスクリプトに頼っており、再現可能な単体テストが存在しなかった。以下の2種類のテストとして正式に整備した。
-
-### 5.1 `test_generic_sum_type.c`(ランタイムの単体テスト)
-
-外部フレームワークを使わず標準の `assert()` のみで構成している(本ライブラリ自体が依存ゼロを方針としているため)。`DEFINE_SUM_TYPE`のコンストラクタ/ゲッター、`DEFINE_SUM_MATCH`の振り分け、`DEFINE_SUM_DISPATCH`のctx書き換えとロックフックの呼び出し回数、`DEFINE_SUM_DESTROY`のタグごとの呼び出し、`DEFINE_SUM_COPY`のディープコピー/identity copyをそれぞれ検証する。AddressSanitizer付きでビルドし、リーク・二重解放がないことも含めて全6件成功を確認済み。
-
-**構造体をCTX_TYPE/TYPEに渡す際は、その場でstructを書かず必ずtypedef済みの型名を渡すこと**を利用ルールとして明記する(実装中に前方宣言の書き方を誤り型不一致エラーを作り込んだ実例がある。詳細はVERIFICATION_LOG.md 5.1節)。
-
-### 5.2 `test_compile_guarantees.sh`(コンパイル時保証の回帰テスト)
-
-本ライブラリの価値の半分は「間違えたらコンパイルが落ちること」(3節の網羅性検査・順序取り違え検出)にあるため、通常の単体テストとは別に、意図的に壊れたコード片をコンパイルしてみて期待通り失敗する／成功することを確認するスクリプトを用意した。次のパターンを検証している(1〜4は元からの基本パターン、5〜7は4.5節・4.10節の検証時に追加、8はDEFINE_SUM_NEW_GENERIC/SUM_NEW関連でSTD=c99のときのみスキップされる)。
-
-| ケース | 期待結果 |
+| 内容 | 更新頻度 |
 |---|---|
-| ハンドラの渡し忘れ | コンパイル失敗 |
-| 型が異なるvariant間でのハンドラ順序取り違え | コンパイル失敗 |
-| 型が同一のvariant間でのハンドラ順序取り違え(3節記載の既知の限界) | コンパイル成功(検出できないことの回帰確認) |
-| 正常系 | コンパイル成功 |
-| SUM_NEWに無関係な型を渡す(C11以降のみ) | コンパイル失敗 |
-| SUM_NEWで2 variantが同一型を共有(C11以降のみ) | コンパイル失敗 |
-| SUM_NEWの正常系(C11以降のみ) | コンパイル成功 |
+| 設計判断の根拠（なぜ A ではなく B か） | 一度決まれば不変。追記型 |
+| 既知の制約カタログ | 実装が進むと減る。更新型 |
+| テスト・CI・バグ・今後の課題といったプロジェクト状況 | 常に変動 |
 
-3番目のケースは「バグ」ではなく「既知の限界が今も変わっていないことの確認」として意図的に成功を期待している点に注意。将来このテストが失敗する(＝検出できるようになる)ようなことがあれば、3節の記述を合わせて更新する必要がある。
+更新頻度の違うものが同居していると、どれか一つを直すたびに全体を読み直すことになる。
+さらに「保証の一覧」（旧5.2節）が `tests/test_compile_guarantees.sh` と二重管理になっており、
+実際に食い違っていた（スクリプトに14件、この文書の表に7件）。
 
-## 6. CI (GitHub Actions)
+分割後は、**保証の一覧は `spec/manifest.tsv` を単一ソースとして生成**されるようになり、
+CI が同期を検査するため乖離が構造的に起きなくなった。
 
-`.github/workflows/ci.yml` にて、`main`ブランチへのpush/PR時に以下を自動実行する。
+## 移設先
 
-- **gcc × clang × (c99, c11, c17) の 2×3=6ジョブマトリクス**: 対応コンパイラ(GCC/Clang、MSVCは対象外)と対応C標準(4.11節参照)
-- `examples/`配下の全デモを`-std=${{ matrix.std }} -pedantic -Wall -Wextra -Werror`でビルドし、実行してクラッシュしないことを確認(`generic_ctor_demo.c`はC11以降限定機能を使うが、ファイル自体は自己ガードでc99でもビルド・実行できるようにしてあるため、この既存グロブ運用に無変更で乗る)
-- `tests/test_*.c`をAddressSanitizer付きでビルド・実行(`test_sum_new_generic.c`も同様に自己ガード)
-- `tests/test_compile_guarantees.sh`を`CC=$CC STD=${{ matrix.std }}`で実行し、6通りの組み合わせすべてで網羅性検査・順序取り違え検出が機能し続けているかを確認(STD=c99のときはDEFINE_SUM_NEW_GENERIC関連ケースのみ自動スキップ)
+| 旧節 | 内容 | 移設先 |
+|---|---|---|
+| 冒頭・1章 | 対応環境、MSVC 非対応 | [ADR-0007](./docs/adr/0007-msvc-out-of-scope.md), [requirements.md](./docs/requirements.md) |
+| 1 | 方式選択（X-Macro 採用と代替案の比較） | [ADR-0001](./docs/adr/0001-x-macro-code-generation.md) |
+| 2.1〜2.3 | 型リスト・`DEFINE_SUM_TYPE`・`DEFINE_SUM_MATCH` の仕様 | [api_reference.md](./api_reference.md) |
+| 2.4 | MATCH と DISPATCH を分けた判断 | [ADR-0002](./docs/adr/0002-separate-match-and-dispatch.md) |
+| 2.5, 2.6 | DESTROY / COPY を専用マクロにした判断 | [ADR-0004](./docs/adr/0004-destroy-copy-separate-macros.md) |
+| 2.7 | ロックフックの外出し | [ADR-0003](./docs/adr/0003-lock-hook-injection.md) |
+| 2.8 | `_Generic` によるコンストラクタ選択 | [ADR-0008](./docs/adr/0008-generic-constructor-selection.md) |
+| 2.9, 2.10 | Either / Result を薄いヘルパにした判断 | [ADR-0005](./docs/adr/0005-either-result-thin-helpers.md) |
+| 2.10 後半 | ROP が汎用化できない件 | [C-13](./docs/constraints.md#c-13) |
+| 3 | 網羅性検査の仕組みと限界 | [ADR-0001](./docs/adr/0001-x-macro-code-generation.md), [C-01](./docs/constraints.md#c-01), [GUARANTEES.md](./docs/GUARANTEES.md) |
+| 4.1 | 所有権・呼び出し忘れ | [C-03](./docs/constraints.md#c-03) |
+| 4.2 | 再帰的直和型 | [C-04](./docs/constraints.md#c-04), [ADR-0006](./docs/adr/0006-no-recursive-sum-types.md) |
+| 4.3 | カプセル化がない | [C-05](./docs/constraints.md#c-05) |
+| 4.4 | 1 variant = 1 型 | [C-06](./docs/constraints.md#c-06) |
+| 4.5 | 関数ポインタ型・配列型の制約 | [C-02](./docs/constraints.md#c-02) |
+| 4.6 | コンパイラ依存部分 | [C-07](./docs/constraints.md#c-07) |
+| 4.7 | `RetType = void` が使えない | [C-08](./docs/constraints.md#c-08) |
+| 4.8 | スレッドセーフティ・再入デッドロック | [C-09](./docs/constraints.md#c-09) |
+| 4.9 | メモリレイアウト | [C-10](./docs/constraints.md#c-10) |
+| 4.10 | 複数翻訳単位での共有 | [C-11](./docs/constraints.md#c-11), [G-007](./docs/GUARANTEES.md#g-007) |
+| 4.11 | デバッグ容易性 | [C-12](./docs/constraints.md#c-12) |
+| 4.12 | 規格書との突き合わせ | [VERIFICATION_LOG.md](./VERIFICATION_LOG.md) 4.12節 |
+| 4.13 | `SUM_NEW` の制約 | [ADR-0008](./docs/adr/0008-generic-constructor-selection.md), [C-01](./docs/constraints.md#c-01) |
+| 4.14 | const 正しさ | [ADR-0009](./docs/adr/0009-non-breaking-const-support.md) |
+| 5.1 | ランタイム単体テスト | [`tests/`](./tests/) |
+| 5.2 | コンパイル時保証の一覧 | **[`spec/`](./spec/) が単一ソース。[docs/GUARANTEES.md](./docs/GUARANTEES.md) はその生成物** |
+| 6 | CI | [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)（設定ファイル自体が正） |
+| 7 | 見つかったバグ | [VERIFICATION_LOG.md](./VERIFICATION_LOG.md) 7節 |
+| 8 | 今後の検討課題 | GitHub Issues（Markdown のタスクリストは腐るため） |
+| — | 何を解くライブラリか（当時は不在） | [requirements.md](./docs/requirements.md) |
 
-`test_compile_guarantees.sh`は元々`gcc`・`-std=c11`をハードコードしていたが、CIでコンパイラ・C標準の両方を切り替えられるよう`${CC:-gcc}` / `${STD:-c11}`で環境変数化した(未指定時のデフォルトはこれまで通り)。
+## 現在の文書構成
 
-CI導入の経緯(clang固有警告の初回捕捉が引き金になった話)はVERIFICATION_LOG.md 6節を参照。
+| 文書 | 役割 | 読者 |
+|---|---|---|
+| [README.md](./README.md) | 入口・クイックスタート | はじめて見る人 |
+| [docs/requirements.md](./docs/requirements.md) | 何を解くか・採用条件・非目標 | 採用を検討する人 |
+| [api_reference.md](./api_reference.md) | シグネチャと使い方 | 利用者 |
+| [docs/GUARANTEES.md](./docs/GUARANTEES.md) | コンパイル時に何が保証されるか（**生成物**） | 利用者・メンテナ |
+| [docs/constraints.md](./docs/constraints.md) | できないことの一覧 | 利用者・メンテナ |
+| [docs/adr/](./docs/adr/) | なぜそう決めたか | メンテナ・将来の自分 |
+| [spec/](./spec/) | 保証の実行可能仕様（**単一ソース**） | メンテナ |
+| [VERIFICATION_LOG.md](./VERIFICATION_LOG.md) | 結論に至るまでの過程・訂正履歴 | 設計の読み物として |
 
-## 7. 今回の検証で見つかったバグと修正
-
-実装・検証の過程で見つかったバグ(`NULL`未定義、ロック解放漏れによるデッドロック、clang固有の`-Wunused-function`、`DEFINE_SUM_NEW_GENERIC`検出タイミングの誤解、配列型`_Generic`連想キーに関する記載ミス)は、いずれも修正済みで現在のヘッダ・ドキュメントには反映されている。経緯・原因・教訓の詳細はVERIFICATION_LOG.md 7節を参照。
-
-## 8. 今後の検討課題(考慮漏れの可能性がある項目)
-
-- **`DEFINE_SUM_DESTROY`/`DEFINE_SUM_COPY` の呼び出し忘れ自体を検出する手段(4.1節)。** `__attribute__((cleanup(...)))`で自動化できるが、Cにmove semanticsがないため値コピー時に二重解放を引き起こすリスクがあり根本解決にならない(ASan・CBMC双方の実機検証で確認済み。詳細はVERIFICATION_LOG.md 8節)。
-- **`SUM_CTX_LOCK`/`SUM_CTX_UNLOCK` の再定義漏れ(4.8節)。** 同じCtx型でもTUを分ければTUごとに異なるロック方針を持たせられることを実機確認した。「ロックが必要なDISPATCH利用と不要なDISPATCH利用を同じ翻訳単位に混在させない」という物理的なファイル分割を運用ルールとする(詳細はVERIFICATION_LOG.md 8節)。
-- **`SUM_NEW`の呼び出し記法(2.8節、4.13節)。** `NAME_new(x)`という専用マクロは生成できないが、利用側が`#define NAME_new(x) SUM_NEW(NAME, VARIANTS, x)`と1行書けば短い記法で呼べる(C99/C11双方で動作確認済み。詳細はVERIFICATION_LOG.md 8節)。
-
-**着手決定済み(作業対象):**
-
-- **const 正しさの非破壊対応(4.14節)。** read-only 操作でも `const NAME *` から呼べるよう、`DEFINE_SUM_MATCH_CONST` と const 対応ゲッター(`NAME_get_<tag>_const`)を**非破壊で追加**する。既存の可変版 API はそのまま残す。実装後は `test_compile_guarantees.sh` に「const版で payload を書き換えようとすると失敗する」回帰ケースと、`test_generic_sum_type.c` に const 経由呼び出しの正常系を追加する。
-- **`DEFINE_SUM_DISPATCH` の再入デッドロックの明文化と規約化(4.8節)。** ロック区間がハンドラ本体全体を包むため、同一 `ctx` への再 dispatch が非再帰ロックでデッドロックする点を design_spec / ヘッダコメントに明記し、「ハンドラ内で同一 ctx へ再 dispatch しない/必要なら再帰対応ロックを使う」を運用ルールとして周知する。
-
-**決定済み・スコープ外とした項目:**
-
-- 再帰的直和型(連結リスト等)のサポート → 対応しない(4.2節参照。必要ならRustを使う)
-- ハンドラの渡し順取り違え検出 → 「各variantに専用structを与える」運用ルールと `-Werror` で実質的に解決済み(3節参照)。同一構造の型を複数variantで使い回すレアケースのみ検出不能だが、そもそもそのような設計自体を避けるべきという結論とする
-- MSVCサポート → 対応しない(1章参照。C++が使える環境では`std::variant`を使うべきという判断)
-- variantがポインタ資源を持つ場合のコピー/解放 → `DEFINE_SUM_DESTROY`/`DEFINE_SUM_COPY` として実装済み(2.5, 2.6節、`resource_demo.c`)
-- スレッドセーフティ → `SUM_CTX_LOCK`/`SUM_CTX_UNLOCK` フックとして実装済み(2.7節、`threadsafe_dispatch_demo.c`)。RTOS/Linuxいずれの環境でもフックの中身を差し替えるだけで対応できる設計にした
-- CIへの組み込み → GitHub Actions (`.github/workflows/ci.yml`) として実装済み(6節)
-- 関数テーブル方式(homogeneous function pointer table)の採用 → 不採用(2.8節参照)。3節の型安全性を犠牲にするため、代わりにコンストラクタ自動選択(`DEFINE_SUM_NEW_GENERIC`/`SUM_NEW`)を実装した
+`VERIFICATION_LOG.md` の節番号はこの文書の旧節番号に対応している。上の表で読み替えること。

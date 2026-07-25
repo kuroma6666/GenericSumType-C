@@ -1,6 +1,6 @@
 # generic_sum_type.h API リファレンス
 
-このドキュメントは `generic_sum_type.h` が提供するマクロ・関数の**シグネチャと使い方**をまとめたリファレンスである。各マクロを採用した設計判断・トレードオフ・実装していないことは [design_spec.md](./design_spec.md) を参照。「何ができるか」を素早く引くための一覧であり、「なぜそうなっているか」はdesign_spec.md側に分離している。
+このドキュメントは `generic_sum_type.h` が提供するマクロ・関数の**シグネチャと使い方**をまとめたリファレンスである。各マクロを採用した設計判断・トレードオフ・実装していないことは [docs/adr/](./docs/adr/) と [docs/constraints.md](./docs/constraints.md) を参照。「何ができるか」を素早く引くための一覧であり、「なぜそうなっているか」は [docs/adr/](./docs/adr/) 側に分離している。
 
 ## 目次
 
@@ -39,9 +39,9 @@
 | `NAME` | SumType名。呼び出し側から渡される。型リスト定義側は素通しするだけでよい |
 | `EXTRA` | 呼び出しマクロごとに意味が変わる文脈引数(`RetType`, `CtxType` など、または未使用なら `_`) |
 | `tagN` | variantのタグ名(小文字スネークケース推奨。`NAME##_##tagN` という識別子が生成されるため) |
-| `TypeN` | そのvariantのペイロード型。**素の基本型(`int`, `double`等)を直接使わず専用structでラップすることを推奨**(design_spec.md 3節: ハンドラ順序取り違え検出のため) |
+| `TypeN` | そのvariantのペイロード型。**素の基本型(`int`, `double`等)を直接使わず専用structでラップすることを推奨**([C-01](./docs/constraints.md#c-01): ハンドラ順序取り違え検出のため) |
 
-型リスト中に **関数ポインタ型など複雑な宣言子を持つ型**を直接書くと壊れる(原因はマクロのコンマ分割ではなく、`TYPE 識別子;` という宣言パターンが関数ポインタの宣言子構文と噛み合わないため。実機検証済み、design_spec.md 4.5節参照)。`typedef` で単一トークンの型名にしてから渡すこと。
+型リスト中に **関数ポインタ型など複雑な宣言子を持つ型**を直接書くと壊れる(原因はマクロのコンマ分割ではなく、`TYPE 識別子;` という宣言パターンが関数ポインタの宣言子構文と噛み合わないため。実機検証済み、[C-02](./docs/constraints.md#c-02)参照)。`typedef` で単一トークンの型名にしてから渡すこと。
 
 ---
 
@@ -59,7 +59,7 @@ DEFINE_SUM_TYPE(NAME, VARIANTS)
 | `NAME` | `typedef struct { NAME_tag_t tag; union { ... } as; } NAME;` | タグ付きunion本体 |
 | `NAME_new_<tag>` | `NAME NAME_new_<tag>(Type v)` | コンストラクタ(variantごとに1個生成) |
 | `NAME_get_<tag>` | `Type *NAME_get_<tag>(NAME *self)` | タグが一致すればアドレス、しなければ`NULL`を返すゲッター |
-| `NAME_get_<tag>_const` | `Type const *NAME_get_<tag>_const(const NAME *self)` | 上記の read-only 版。`const NAME*` から呼べ、`Type const*` を返す(payload を書き換えられない)。可変版と併存(design_spec.md 4.14節) |
+| `NAME_get_<tag>_const` | `Type const *NAME_get_<tag>_const(const NAME *self)` | 上記の read-only 版。`const NAME*` から呼べ、`Type const*` を返す(payload を書き換えられない)。可変版と併存([ADR-0009](./docs/adr/0009-non-breaking-const-support.md)) |
 
 ```c
 DEFINE_SUM_TYPE(Shape, SHAPE_VARIANTS)
@@ -83,7 +83,7 @@ DEFINE_SUM_MATCH(NAME, VARIANTS, MATCH_FN, RET_TYPE)
 |---|---|
 | `MATCH_FN` | `RET_TYPE MATCH_FN(NAME *self, RET_TYPE (*on_tag1)(Type1*), RET_TYPE (*on_tag2)(Type2*), ...)` |
 
-- ハンドラの並び順は型リストの定義順と一致させる(渡し忘れ・順序取り違えはコンパイルエラーで検出される。design_spec.md 3節)。
+- ハンドラの並び順は型リストの定義順と一致させる(渡し忘れ・順序取り違えはコンパイルエラーで検出される。[C-01](./docs/constraints.md#c-01))。
 - `RET_TYPE = void` は**非推奨**(`-pedantic`環境で警告。4.7節参照)。void用途は `DEFINE_SUM_DISPATCH` を使う。
 
 ```c
@@ -109,8 +109,8 @@ DEFINE_SUM_MATCH_CONST(NAME, VARIANTS, MATCH_FN, RET_TYPE)
 |---|---|
 | `MATCH_FN` | `RET_TYPE MATCH_FN(const NAME *self, RET_TYPE (*on_tag1)(Type1 const*), RET_TYPE (*on_tag2)(Type2 const*), ...)` |
 
-- 網羅性検査・順序取り違え検出は可変版と同一の仕組みで働く(design_spec.md 3節)。
-- 戻り型に east const(`Type const*`)を使うのは、`TYPE` がポインタ型(例: `const char*`)でも payload オブジェクト自体に const を付けるため(west const `const Type*` だと指す先に const が付き型不一致になる。design_spec.md 4.14節)。
+- 網羅性検査・順序取り違え検出は可変版と同一の仕組みで働く([C-01](./docs/constraints.md#c-01))。
+- 戻り型に east const(`Type const*`)を使うのは、`TYPE` がポインタ型(例: `const char*`)でも payload オブジェクト自体に const を付けるため(west const `const Type*` だと指す先に const が付き型不一致になる。[ADR-0009](./docs/adr/0009-non-breaking-const-support.md))。
 
 ```c
 DEFINE_SUM_MATCH_CONST(Shape, SHAPE_VARIANTS, Shape_area, double)
@@ -150,7 +150,7 @@ Either の各操作は既存 API の組み合わせで完結する。
 | 畳み込み(fold) | `DEFINE_SUM_MATCH_CONST` の左右2ハンドラ |
 
 - `left`/`right` 以外の tag 名の SumType に `DEFINE_EITHER_HELPERS` を使うと、`NAME_left` / `NAME_right` という enum 定数が無くコンパイルエラーになる(規約違反がそのまま検出される)。
-- **L と R は別の型にする**(専用 struct でラップ)。同一型だと fold ハンドラの左右取り違え検出が効かない(design_spec.md 3節)。データを持たない Left/Right にはダミー struct を使う(4.4節)。
+- **L と R は別の型にする**(専用 struct でラップ)。同一型だと fold ハンドラの左右取り違え検出が効かない([C-01](./docs/constraints.md#c-01))。データを持たない Left/Right にはダミー struct を使う([C-06](./docs/constraints.md#c-06))。
 - 実例は [`examples/either_demo.c`](./examples/either_demo.c)。
 
 ```c
@@ -184,9 +184,9 @@ DEFINE_SUM_MATCH_CONST(Result, RESULT_EITHER, Result_fold, int)
 | 畳み込み(fold) | `DEFINE_SUM_MATCH_CONST` の ok/err 2ハンドラ |
 | unwrap_or 等 | 利用側で手書き（`T` 型を知る必要があるためヘルパ化しない） |
 
-- **C での限界(ROP):** `map: Result<T,E> → Result<U,E>` / `and_then: T → Result<U,E>` / `map_err: E → F` のように **payload 型が変わる**関数合成は、変換先が別の具体 Result 型になり C では汎用化できない(design_spec.md 2.10節)。同型変換(`T → Result<T,E>`)や目標型を明示した手書きは可能。
+- **C での限界(ROP):** `map: Result<T,E> → Result<U,E>` / `and_then: T → Result<U,E>` / `map_err: E → F` のように **payload 型が変わる**関数合成は、変換先が別の具体 Result 型になり C では汎用化できない([C-13](./docs/constraints.md#c-13))。同型変換(`T → Result<T,E>`)や目標型を明示した手書きは可能。
 - `ok`/`err` 以外の tag 名に使うと `NAME_ok`/`NAME_err` が無くコンパイルエラー(規約違反の検出)。
-- **T と E は別の型にする**(専用 struct)。同一型だと fold の取り違え検出が効かない(3節)。
+- **T と E は別の型にする**(専用 struct)。同一型だと fold の取り違え検出が効かない([C-01](./docs/constraints.md#c-01))。
 - 実例は [`examples/result_demo.c`](./examples/result_demo.c)。
 
 ---
@@ -205,7 +205,7 @@ DEFINE_SUM_DISPATCH(NAME, VARIANTS, DISPATCH_FN, CTX_TYPE)
 
 内部動作: `SUM_CTX_LOCK(ctx)` → `switch(self->tag)` → `SUM_CTX_UNLOCK(ctx)`。
 
-**注意:** `CTX_TYPE` にその場で `struct Foo` を書かず、必ず事前に `typedef` した型名を渡すこと。マクロ展開位置ごとに別の匿名構造体が生成され `-Wincompatible-pointer-types` になる(design_spec.md 5.1節、実際に踏んだ既知の落とし穴)。
+**注意:** `CTX_TYPE` にその場で `struct Foo` を書かず、必ず事前に `typedef` した型名を渡すこと。マクロ展開位置ごとに別の匿名構造体が生成され `-Wincompatible-pointer-types` になる([C-01](./docs/constraints.md#c-01)、実際に踏んだ既知の落とし穴)。
 
 ```c
 typedef struct { long counter; } Counter;   /* 先にtypedefする */
@@ -231,7 +231,7 @@ DEFINE_SUM_DESTROY(NAME, VARIANTS, DESTROY_FN)
 |---|---|
 | `DESTROY_FN` | `void DESTROY_FN(NAME *self, void (*on_tag1)(Type1*), void (*on_tag2)(Type2*), ...)` |
 
-**呼び出し忘れを検出する仕組みはない**(Cにownership checkerは存在しないため。design_spec.md 4.1節)。呼べば全variantを網羅的に処理できることまでが保証範囲。
+**呼び出し忘れを検出する仕組みはない**(Cにownership checkerは存在しないため。[C-03](./docs/constraints.md#c-03))。呼べば全variantを網羅的に処理できることまでが保証範囲。
 
 ```c
 DEFINE_SUM_DESTROY(Message, MESSAGE_VARIANTS, Message_destroy)
@@ -313,7 +313,54 @@ SUM_DEFINE_IDENTITY_COPY(MsgNumber_identity_copy, MsgNumber)
 #include "generic_sum_type.h"
 ```
 
-再定義しなければ排他制御なしで動く(コンパイルエラーにはならない)。複数スレッドから使うctxかどうかはコードレビューで確認すること(design_spec.md 4.8節)。
+再定義しなければ排他制御なしで動く(コンパイルエラーにはならない)。複数スレッドから使うctxかどうかはコードレビューで確認すること([C-09](./docs/constraints.md#c-09))。
+
+**ロック区間はハンドラ本体全体を包む。** そのためハンドラ内から同一 `ctx` へ再 dispatch すると、非再帰ロックでは自己デッドロックする([C-09](./docs/constraints.md#c-09))。
+
+---
+
+## 8.1 `SUM_UNHANDLED_TAG`
+
+`self->tag` がどの variant にも一致しなかった場合に呼ばれるフックマクロ。デフォルトは no-op。`SUM_CTX_LOCK` と同様、`#include` より前に再定義する。
+
+```c
+#include <assert.h>
+#define SUM_UNHANDLED_TAG(self) assert(!"generic_sum_type: unhandled tag")
+#include "generic_sum_type.h"
+```
+
+`union` メンバは常に公開でありゲッターを迂回できる([C-05](./docs/constraints.md#c-05))ため、tag の破壊は起こり得ないとは言い切れない。開発ビルドで `assert` を差し込んでおくと早期に検知できる。
+
+**全5ディスパッチャが呼ぶが、その後の挙動は戻り値の有無で分かれる。**
+
+| マクロ | 不一致時の挙動 |
+|---|---|
+| `DEFINE_SUM_DISPATCH` | フックを呼び、ハンドラを1つも呼ばずに正常復帰(`SUM_CTX_UNLOCK` は実行される) |
+| `DEFINE_SUM_DESTROY` | フックを呼び、ハンドラを1つも呼ばずに正常復帰 |
+| `DEFINE_SUM_MATCH` / `_CONST` / `DEFINE_SUM_COPY` | フックを呼んだ後 `SUM_UNREACHABLE()` へ進む(**返す値を用意できないため**) |
+
+この非対称は言語の制約から導かれる帰結であり意図的なものである([ADR-0010](./docs/adr/0010-unhandled-tag-hook.md))。回帰検査は [G-019](./docs/GUARANTEES.md#g-019)。
+
+---
+
+## 8.2 `SUM_DEFINE_PREDICATE`
+
+```c
+SUM_DEFINE_PREDICATE(NAME, TAG)
+```
+
+「今この SumType はどの variant か」を問う述語を1個生成する。
+
+| 生成される識別子 | シグネチャ |
+|---|---|
+| `NAME_is_<TAG>` | `int NAME_is_<TAG>(const NAME *self)` |
+
+`DEFINE_EITHER_HELPERS` / `DEFINE_RESULT_HELPERS` はどちらもこれの2回呼び出しにすぎない([ADR-0005](./docs/adr/0005-either-result-thin-helpers.md))。`left`/`right`、`ok`/`err` 以外の2択にもそのまま使える。
+
+```c
+SUM_DEFINE_PREDICATE(Job, pending)
+SUM_DEFINE_PREDICATE(Job, done)
+```
 
 ---
 
@@ -332,10 +379,15 @@ C11の`_Generic`を使い、渡した値の**型**だけから`NAME_new_<tag>()`
 |---|---|---|
 | `NAME_GenericPlaceholder_`(struct) | - | `_Generic`の連想リストの先頭コンマ問題を解決するための内部プレースホルダ型 |
 | `NAME_new_unreachable_` | `NAME NAME_new_unreachable_(struct NAME_GenericPlaceholder_)` | 上記プレースホルダ用の内部関数。通常は選択されない |
+| `NAME_assert_distinct_payloads_` | `void NAME_assert_distinct_payloads_(void)` | ペイロード型の重複を定義時点で検査するための内部 probe 関数(下記) |
+
+**このマクロを呼ぶだけで[不変条件 C-01](./docs/constraints.md#c-01)(variant 間でペイロード型が重複しない)が機械検査される。** `_Generic` は互換な型が連想リストに2つあると ISO C 6.5.1.1 の制約違反になるため、probe 関数がその場で `_Generic` を1回展開して診断を発火させる。**`SUM_NEW` を一度も呼ばなくても検出される**([G-009](./docs/GUARANTEES.md#g-009), [G-017](./docs/GUARANTEES.md#g-017))。
+
+そのため `SUM_NEW` を使う予定がなくても、**この不変条件を検査させる目的だけで `DEFINE_SUM_NEW_GENERIC` を呼んでおく価値がある**。C99 ビルドではこの検査は働かない([G-018](./docs/GUARANTEES.md#g-018))。
 
 **`NAME_new(x)`のような専用マクロは生成できない**(Cのプリプロセッサはマクロ展開結果から新しい`#define`を起こせないため)。そのため呼び出し側は`SUM_NEW(NAME, VARIANTS, x)`という形で、`NAME`と`VARIANTS`を毎回明示する。
 
-**推奨イディオム: 利用側で1行のショートカットマクロを書く。** ライブラリが`NAME_new(x)`を自動生成することはできないが、利用側が`DEFINE_SUM_NEW_GENERIC`の直後に自分で`#define NAME_new(x) SUM_NEW(NAME, VARIANTS, x)`と1行書くことは制限されない(これは通常のユーザーコードによる`#define`であり、マクロ展開結果から生成されたものではないため、上記の制約に抵触しない)。C99/C11双方で動作確認済み(design_spec.md 8節)。
+**推奨イディオム: 利用側で1行のショートカットマクロを書く。** ライブラリが`NAME_new(x)`を自動生成することはできないが、利用側が`DEFINE_SUM_NEW_GENERIC`の直後に自分で`#define NAME_new(x) SUM_NEW(NAME, VARIANTS, x)`と1行書くことは制限されない(これは通常のユーザーコードによる`#define`であり、マクロ展開結果から生成されたものではないため、上記の制約に抵触しない)。C99/C11双方で動作確認済み([ADR-0008](./docs/adr/0008-generic-constructor-selection.md))。
 
 ```c
 typedef struct { int32_t v; } IntBox;
@@ -357,10 +409,10 @@ IntOrStr b = IntOrStr_new(((StrBox){ "hi" }));
 #endif
 ```
 
-**注意点(design_spec.md 4.13節に検証結果を記載):**
+**注意点([ADR-0008](./docs/adr/0008-generic-constructor-selection.md)に検証結果を記載):**
 
-- `_Generic`は制御式の型が**完全一致**しないと選択できない(暗黙の型変換に頼れない)。ポインタが指す先のconst有無も別の型として扱われる(`char*`と`const char*`は別キー)。ペイロードを専用structでラップする設計ガイドライン(0節)に従っていれば問題にならない。
-- 2つ以上のvariantが同一のペイロード型を共有していると、`_Generic`の連想リストが重複しコンパイルエラーになる。ただし**`DEFINE_SUM_NEW_GENERIC`単体を呼んだだけでは検出されない**。実際に`SUM_NEW(NAME, VARIANTS, x)`を呼んで`_Generic`が展開された箇所で初めて検出される。
+- `_Generic`は制御式の型が**完全一致**しないと選択できない(暗黙の型変換に頼れない)。ポインタが指す先のconst有無も別の型として扱われる(`char*`と`const char*`は別キー)。ペイロードを専用structでラップする設計ガイドライン([C-01](./docs/constraints.md#c-01))に従っていれば問題にならない。
+- 2つ以上のvariantが同一のペイロード型を共有していると、`_Generic`の連想リストが重複しコンパイルエラーになる。**`DEFINE_SUM_NEW_GENERIC`を呼んだ時点で検出される**(probe 関数がその場で`_Generic`を展開するため。`SUM_NEW`の呼び出しは不要)。`typedef`は別名を作るだけで別の型を作らないため、`typedef int32_t A; typedef int32_t B;` のように「素の基本型を避ける」ガイドラインを守っていても重複しうる。この検査だけがそれを捕まえる([C-01](./docs/constraints.md#c-01))。
 - このマクロを使うファイルをC99マトリクスのCIジョブに含める場合、ファイル自体を`#if __STDC_VERSION__ >= 201112L`で自己ガードし、C99実行時は代替処理(またはスキップ)をする必要がある。詳細は[`examples/generic_ctor_demo.c`](./examples/generic_ctor_demo.c)を参照。
 
 ---
@@ -372,7 +424,7 @@ IntOrStr b = IntOrStr_new(((StrBox){ "hi" }));
 | マクロ | 役割 |
 |---|---|
 | `SUM_UNREACHABLE()` | `DEFINE_SUM_MATCH`/`DEFINE_SUM_COPY` の switch 末尾で使う。GCC/Clangでは`__builtin_unreachable()`、それ以外では`abort()`にフォールバック |
-| `SUM_MAYBE_UNUSED` | 生成される全`static inline`関数に付与される`__attribute__((unused))`。Clangの`-Wunused-function`対策(design_spec.md 7節) |
+| `SUM_MAYBE_UNUSED` | 生成される全`static inline`関数に付与される`__attribute__((unused))`。Clangの`-Wunused-function`対策([VERIFICATION_LOG.md](./VERIFICATION_LOG.md) 7節) |
 | `SUM_TAG_ENTRY` / `SUM_UNION_MEMBER` / `SUM_CTOR` / `SUM_GETTER` | `DEFINE_SUM_TYPE`が内部で使うアスペクトマクロ |
 | `SUM_MATCH_PARAM` / `SUM_MATCH_CASE` | `DEFINE_SUM_MATCH`が内部で使うアスペクトマクロ |
 | `SUM_DISPATCH_PARAM` / `SUM_DISPATCH_CASE` | `DEFINE_SUM_DISPATCH`が内部で使うアスペクトマクロ |
@@ -392,6 +444,15 @@ IntOrStr b = IntOrStr_new(((StrBox){ "hi" }));
 | `DEFINE_SUM_DISPATCH` | 副作用を伴う処理 | `void (*)(Type*, CtxType*)` | あり(ロックフック付き) | `void`固定 |
 | `DEFINE_SUM_DESTROY` | リソース解放 | `void (*)(Type*)` | なし | `void`固定 |
 | `DEFINE_SUM_COPY` | ディープコピー | `Type (*)(const Type*)` | なし | `NAME`(コピー結果) |
-| `DEFINE_SUM_NEW_GENERIC` + `SUM_NEW` | 型からコンストラクタを自動選択(C11以降限定) | - | - | `NAME` |
+| `DEFINE_SUM_NEW_GENERIC` + `SUM_NEW` | 型からコンストラクタを自動選択 + ペイロード型重複の検査(C11以降限定) | - | - | `NAME` |
+| `SUM_DEFINE_PREDICATE` | `NAME_is_<TAG>()` 述語の生成 | - | - | `int` |
+| `DEFINE_EITHER_HELPERS` / `DEFINE_RESULT_HELPERS` | 上記の `left`/`right`・`ok`/`err` 版 | - | - | `int` |
 
-実装例は [`examples/`](./examples) 配下の各デモを参照(`demo.c`, `shape_demo.c`, `command_demo.c`, `resource_demo.c`, `threadsafe_dispatch_demo.c`, `generic_ctor_demo.c`)。設計判断・既知の制約は [design_spec.md](./design_spec.md) を参照。
+フック(いずれも `#include` より前に再定義。既定は no-op):
+
+| フック | 呼ばれる場所 |
+|---|---|
+| `SUM_CTX_LOCK` / `SUM_CTX_UNLOCK` | `DEFINE_SUM_DISPATCH` のロック区間 |
+| `SUM_UNHANDLED_TAG` | 全5ディスパッチャで tag がどの variant にも一致しなかったとき |
+
+実装例は [`examples/`](./examples) 配下の各デモを参照(`demo.c`, `shape_demo.c`, `command_demo.c`, `resource_demo.c`, `threadsafe_dispatch_demo.c`, `generic_ctor_demo.c`)。設計判断・既知の制約は [docs/adr/](./docs/adr/) と [docs/constraints.md](./docs/constraints.md) を参照。
