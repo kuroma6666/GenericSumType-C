@@ -1,0 +1,37 @@
+# generic_sum_type.h コンパイル時保証の仕様（単一ソース）
+#
+# この表がこのライブラリの仕様の中核である。docs/GUARANTEES.md は spec/emit.sh が
+# この表とケース断片から生成する派生物であり、手で編集してはならない。
+# ケース本体は spec/cases/<id>.c（run-pass のみ spec/cases/<id>/ ディレクトリも可）。
+#
+# 列の意味:
+#   id      安定した識別子。ドキュメント・コミット・Issue からはこれで参照する（節番号を使わない）
+#   kind    guarantee  = ライブラリが約束する挙動。破れたらバグ
+#           known-limit = 約束しない（できない）ことの固定。将来変わってよいがドキュメント更新が要る
+#   expect  compile-fail  / compile-pass / run-pass（ビルド・リンクして終了コード0）
+#   std     any / c11+ / c99only  … 実行対象の C 標準
+#   ref     根拠を説明する文書
+#   title   一行説明
+#
+# ビルドフラグ: -std=$STD -pedantic -Wall -Wextra -Werror
+#
+#id	kind	expect	std	ref	title
+G-001	guarantee	compile-fail	any	docs/adr/0001-x-macro-code-generation.md	ハンドラを渡し忘れる
+G-002	guarantee	compile-fail	any	docs/adr/0001-x-macro-code-generation.md	型が異なる variant 間でハンドラの順序を取り違える
+G-003	known-limit	compile-pass	any	docs/constraints.md#c-01	型が同一の variant 間の順序取り違えは検出できない
+G-004	guarantee	compile-pass	any	docs/adr/0001-x-macro-code-generation.md	網羅・順序ともに正しい呼び出しが通る
+G-005	known-limit	compile-fail	any	docs/constraints.md#c-02	関数ポインタ型を typedef せずペイロードに渡す
+G-006	guarantee	compile-pass	any	docs/constraints.md#c-02	typedef で単一トークン化した関数ポインタ型は渡せる
+G-007	guarantee	run-pass	any	docs/constraints.md#c-11	共通ヘッダを複数の翻訳単位から include して共有する
+G-008	guarantee	compile-fail	c11+	docs/adr/0008-generic-constructor-selection.md	SUM_NEW にどの variant とも一致しない型を渡す
+G-009	guarantee	compile-fail	c11+	docs/adr/0008-generic-constructor-selection.md	ペイロード型の重複を DEFINE_SUM_NEW_GENERIC の時点で検出する
+G-010	guarantee	compile-pass	c11+	docs/adr/0008-generic-constructor-selection.md	SUM_NEW が値の型からコンストラクタを選ぶ
+G-011	guarantee	compile-fail	any	docs/adr/0009-non-breaking-const-support.md	MATCH_CONST のハンドラがペイロードを書き換える
+G-012	guarantee	compile-pass	any	docs/adr/0009-non-breaking-const-support.md	const NAME* から const 版の match / getter を呼ぶ
+G-013	guarantee	compile-fail	any	docs/adr/0005-either-result-thin-helpers.md	Either ヘルパを left/right 以外の tag に使う
+G-014	guarantee	compile-pass	any	docs/adr/0005-either-result-thin-helpers.md	Either ヘルパを left/right の tag に使う
+G-015	guarantee	compile-fail	any	docs/adr/0005-either-result-thin-helpers.md	Result ヘルパを ok/err 以外の tag に使う
+G-016	guarantee	compile-pass	any	docs/adr/0005-either-result-thin-helpers.md	Result ヘルパを ok/err の tag に使う
+G-017	guarantee	compile-fail	c11+	docs/constraints.md#c-01	typedef 別名で同一型になった 2 variant を検出する
+G-018	known-limit	compile-pass	c99only	docs/constraints.md#c-01	C99 ではペイロード型の重複を検出できない
+G-019	guarantee	run-pass	any	docs/adr/0010-unhandled-tag-hook.md	不正 tag で SUM_UNHANDLED_TAG が発火しハンドラは呼ばれない

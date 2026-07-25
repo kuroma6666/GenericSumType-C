@@ -13,8 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # design_spec.md で明言している通り、対応コンパイラはGCC/Clangのみ
-        # （MSVCは意図的にサポート対象外）。
+        # 対応コンパイラはGCC/Clangのみ（MSVCは意図的にサポート対象外。
+        # docs/adr/0007-msvc-out-of-scope.md）。
         cc: [gcc, clang]
         # C99/C11/C17すべてで実際にビルドが通ることをCIで検証する
         # （ドキュメントに「C99以降対応」と書くだけでは検証にならない、という教訓から
@@ -74,11 +74,27 @@ jobs:
             "/tmp/$tbase"
           done
 
-      - name: Run compile-time guarantee regression tests
-        # generic_sum_type.h の価値の半分は「間違えるとコンパイルが落ちること」
-        # (design_spec.md 3節)。ここが壊れていないかを専用スクリプトで検証する。
-        # DEFINE_SUM_NEW_GENERIC関連のケースはSTD=c99のとき自動的にスキップされる
-        # (design_spec.md 4.13節)。
+      - name: Verify compile-time guarantees (spec/)
+        # このライブラリのランタイム挙動は switch 一つ分しかなく、実際に約束しているのは
+        # 「どんなコードがコンパイルを通り、どんなコードが通らないか」である。
+        # spec/manifest.tsv がその仕様の実体で、判定器はコンパイラそのもの。
+        # std 列によって、そのC標準で意味を持つケースだけが選ばれる
+        # (_Generic に依存するケースは c99 で自動スキップされる)。
         run: |
-          chmod +x tests/test_compile_guarantees.sh
-          CC=$CC STD=${{ matrix.std }} tests/test_compile_guarantees.sh
+          chmod +x spec/run.sh
+          CC=$CC STD=${{ matrix.std }} spec/run.sh
+
+      - name: Check docs/GUARANTEES.md is in sync with spec/
+        # GUARANTEES.md は spec/ からの生成物。手で編集された場合や、
+        # manifest.tsv だけ直して再生成し忘れた場合にここで落ちる。
+        # 「ドキュメントに書いた保証」と「実際に検査されている保証」の乖離を
+        # 構造的に防ぐための検査であり、以前この2つは実際に食い違っていた。
+        run: |
+          chmod +x spec/emit.sh
+          spec/emit.sh --check
+
+      - name: Check Markdown cross-references
+        # 制約と保証は C-01 / G-001 という安定IDで相互参照する規約にしている。
+        # その規約はリンクが実際に解決することを確かめて初めて意味を持つ。
+        # ID の振り替えやファイル移動での直し忘れをここで落とす。
+        run: python3 spec/check_links.py
