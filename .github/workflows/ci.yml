@@ -20,7 +20,7 @@ jobs:
         std: [c99, c11, c17]
         # default : examples / tests（ASan）/ spec
         # sanitize: -O2 + ASan + UBSan。最適化時の挙動（不正 tag の扱い等）を確かめる
-        # strict  : 利用側が付けがちな厳格警告（-Wswitch-default, -Wconversion 等）でも警告が出ないこと
+        # strict  : 利用側が付けがちな厳格警告（-Wswitch-default, -Wconversion 等）でも警告が出ないこと。gcc では -fanalyzer も
         mode: [default, sanitize, strict]
 
     steps:
@@ -31,4 +31,25 @@ jobs:
           CC: ${{ matrix.cc }}
           STD: ${{ matrix.std }}
           MODE: ${{ matrix.mode }}
+        run: bash scripts/check.sh
+
+  # 組込み向けクロスコンパイラ（Cortex-M4, newlib）でのコンパイルのみ。実行はしない。
+  # -fshort-enums（AAPCS 既定）や int32_t = long といった、ホストと異なる前提での警告・エラーを拾う。
+  cross-arm:
+    name: cross (arm-none-eabi-gcc, -std=${{ matrix.std }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        std: [c99, c11, c17]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install arm-none-eabi-gcc
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+      - name: Run checks
+        env:
+          CC: arm-none-eabi-gcc
+          CROSS_CFLAGS: -mcpu=cortex-m4 -mthumb
+          STD: ${{ matrix.std }}
+          MODE: cross
         run: bash scripts/check.sh

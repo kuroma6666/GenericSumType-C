@@ -49,3 +49,6 @@ MISRA C:2012 Rule 16.4（switch には default を置く）にも抵触してい
 - 不正 tag・空状態でハンドラが呼ばれないことを、値を返す5種について検査する（[G-020](../GUARANTEES.md#g-020)）。
 - DISPATCH_RET はロック区間内で trap する。`SUM_TRAP` を longjmp で実装する場合、ロックは保持されたままになる。
   `SUM_TRAP` は復帰しない前提の設計なので、これは許容する。
+- コードサイズが増える。Cortex-M4 `-Os` の実測では、4 variant の MATCH 呼び出しで 32 → 42 バイト（範囲検査と trap 命令の分）。
+  `SUM_ASSUME_VALID_TAG` を定義すると 34 バイト（[VERIFICATION_LOG.md](../../VERIFICATION_LOG.md) v2 節）。
+

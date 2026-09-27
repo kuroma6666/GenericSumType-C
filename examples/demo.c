@@ -20,6 +20,7 @@
  *
  * 仕様の詳細: examples/specs/config_value.md
  */
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include "generic_sum_type.h"
@@ -32,7 +33,7 @@
 SUM_DEFINE_TYPE(ConfigValue, CONFIG_VALUE)
 SUM_DEFINE_MATCH(ConfigValue, CONFIG_VALUE, ConfigValue_print, int)
 
-static int print_i(int32_t *v)     { printf("  int    = %d\n", *v); return 0; }
+static int print_i(int32_t *v)     { printf("  int    = %" PRId32 "\n", *v); return 0; }
 static int print_s(const char **v) { printf("  string = %s\n", *v); return 0; }
 static int print_f(double *v)      { printf("  double = %g\n", *v); return 0; }
 

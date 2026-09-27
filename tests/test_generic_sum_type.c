@@ -156,6 +156,7 @@ static void test_copy_is_deep_for_pointer_payload(void) {
 
     StrBox *o = IntOrStr_get_s(&original);
     StrBox *c = IntOrStr_get_s(&copy);
+    assert(o != NULL && c != NULL && o->v != NULL && c->v != NULL);
     assert(o->v != c->v);              /* 別アドレス = ディープコピーされている */
     assert(strcmp(o->v, c->v) == 0);   /* 内容は同一 */
 
@@ -357,6 +358,39 @@ static void test_self_reference_through_struct_pointer(void) {
     assert(Expr_eval(&top, eval_num, eval_add) == 5);
 }
 
+/* ============ 15. tag 値の全域走査: 正しい tag は対応ハンドラ1回、それ以外はハンドラ0回 ============ */
+static int g_scan_i = 0, g_scan_s = 0;
+static void scan_i(IntBox *b, SumCtx *ctx) { (void)b; (void)ctx; g_scan_i++; }
+static void scan_s(StrBox *b, SumCtx *ctx) { (void)b; (void)ctx; g_scan_s++; }
+static int scan_len_i(IntBox *b) { (void)b; g_scan_i++; return 0; }
+static int scan_len_s(StrBox *b) { (void)b; g_scan_s++; return 0; }
+
+static void test_tag_value_scan(void) {
+    /* 負値・空状態・有効値・範囲外を含む tag 値を順に試す */
+    static const int values[] = { -1000, -1, 0, 1, 2, 3, 4, 255, 256, 65535, 1 << 30 };
+    SumCtx ctx = { .total = 0 };
+    for (volatile size_t k = 0; k < sizeof values / sizeof values[0]; ++k) {
+        IntOrStr v = IntOrStr_new_s((StrBox){ .v = "x" });
+        v.tag = (IntOrStr_tag_t)values[k];
+        int valid_i = (values[k] == (int)IntOrStr_TAG_i);
+        int valid_s = (values[k] == (int)IntOrStr_TAG_s);
+
+        g_scan_i = g_scan_s = 0;
+        int hook_before = g_unhandled;
+        IntOrStr_dispatch(&v, &ctx, scan_i, scan_s);
+        assert(g_scan_i == valid_i && g_scan_s == valid_s);
+        assert(g_unhandled == hook_before + (valid_i || valid_s ? 0 : 1));
+
+        g_scan_i = g_scan_s = 0;
+        volatile int trapped = 0;
+        if (setjmp(g_trap_env) == 0) { (void)IntOrStr_to_len(&v, scan_len_i, scan_len_s); }
+        else { trapped = 1; }
+        assert(g_scan_i == valid_i && g_scan_s == valid_s);
+        assert(trapped == !(valid_i || valid_s));
+    }
+    assert(g_lock_count == g_unlock_count);
+}
+
 int main(void) {
     printf("generic_sum_type.h 単体テスト\n");
     RUN(test_ctor_and_getter);
@@ -375,6 +409,7 @@ int main(void) {
     RUN(test_copy_checked_success_and_failure);
     RUN(test_bad_tag_traps_in_value_returning_dispatchers);
     RUN(test_self_reference_through_struct_pointer);
+    RUN(test_tag_value_scan);
     printf("%d件全て成功\n", tests_run);
     return 0;
 }

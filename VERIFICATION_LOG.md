@@ -249,3 +249,44 @@ datatype99 v1.6.5 を clone し、3 variant のうち1腕を省いた `match` �
 | 最小ファイル1件のコンパイル時間 | 0.22 s（本ライブラリの同規模ファイルは 0.03 s。1回の計測で、規模による伸びは未測定） |
 
 比較の結論は [requirements.md](./docs/requirements.md#既存の選択肢との比較) に置いた。
+
+### 実測: 契約に反して戻る SUM_TRAP
+
+`#define SUM_TRAP() (void)(n++)`（戻ってしまう実装）で空状態の値を MATCH に渡すと、gcc / clang の `-O2` とも
+`SUM_TRAP` の後ろの `for (;;) { }` で停止した（`timeout 2` で終了コード 124）。制御式が定数の無限ループは
+C11 6.8.5p6 により終了を仮定されないため、未定義動作にはならない。
+
+### 実測: gcc -fanalyzer
+
+gcc 13 の `-fanalyzer` を examples / tests に掛けた。ヘッダ由来の警告は0件。検出は利用側コードの2件で、
+`try_copy` の戻り値を確かめずにゲッターの結果を参照していた箇所と、`strdup` の NULL を確かめずに `strcmp` へ渡していた箇所。
+どちらも修正し、CI の strict モード（gcc）で `-fanalyzer -Werror` を実行するようにした。
+
+### 実測: GCC / Clang 以外（tcc 0.9.27）での非 GNU 経路
+
+tcc は `__GNUC__` を定義しないので、ヘッダの非 GNU 経路（属性なし、`SUM_TRAP` の既定が `abort()`）を通る。対象外の処理系だが、フォールバック経路が動くことの確認として実行した。
+
+| 項目 | 結果 |
+|---|---|
+| `tests/test_generic_sum_type.c` | 17件すべて成功 |
+| 既定の `SUM_TRAP` | 不正 tag の MATCH で SIGABRT（終了コード 134） |
+| `spec/run.sh`（c99） | 25件成功 / 3件失敗。G-021 は `nonnull` 属性が無いので想定どおり失敗（C-07）。G-013 / G-015 は、tcc が未使用の `static inline` 関数の本体を検査しないため定義時点では落ちず、述語を呼んだ時点で `'T_TAG_left' undeclared` になる |
+| 一部の examples / tests | tcc 自身の不具合（構造体を返す関数呼び出しを並べた配列初期化子で `index too large`。ライブラリを使わない3行の再現コードでも発生し、v1 のヘッダでも同じ）でビルドできない |
+
+### 実測: コードサイズ（Cortex-M4）
+
+`arm-none-eabi-gcc` 13.2.1、`-mcpu=cortex-m4 -mthumb -ffunction-sections`。4 variant の型で、呼び出し側の関数1つあたりの `.text` を測った（バイト）。
+
+| 関数 | v1 `-Os` | v2 `-Os` | v2 `-O2` | v2 `-Os` + `SUM_ASSUME_VALID_TAG` |
+|---|---|---|---|---|
+| MATCH を呼ぶ関数 | 32 | 42 | 44 | 34 |
+| DISPATCH を呼ぶ関数 | 40 | 42 | 44 | 34 |
+| DESTROY を呼ぶ関数 | 40 | 56 | 56 | 56 |
+
+MATCH の増分は、範囲検査（`subs` / `cmp` / `bhi`）と trap（`udf #255`）の分。DESTROY の増分は、空状態の分岐と解放後の tag の書き戻しの分。
+v1 の MATCH は範囲検査が無く、範囲外の tag で分岐表の外へ飛んでいた（冒頭の未定義動作の実測と整合する）。
+AAPCS の既定（`-fshort-enums`）では tag は1バイトになる（`ldrb`）。
+
+計測の途中で、v1 では DISPATCH の関数名を `T_d` にすると tag `d` の enum 定数 `T_d` と衝突した（`'T_d' redeclared as different kind of symbol`）。
+tag 定数と利用者が付ける関数名も同じ名前空間にあった、という I-06 の別の現れ方。v2 の `T_TAG_d` では起きない。
+

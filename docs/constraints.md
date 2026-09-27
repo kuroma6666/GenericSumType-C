@@ -188,6 +188,9 @@ GCC / Clang では次の処理系拡張を使う。いずれも ISO C の規定�
 | `SUM_TRAP()` の既定 | `__builtin_trap()` | `abort()`（`<stdlib.h>`） | フリースタンディング環境で `abort` が無ければ `SUM_TRAP` を定義する |
 | `SUM_ASSUME_VALID_TAG` 時 | `__builtin_unreachable()` | `abort()` | オプトイン時のみ |
 
+GCC / Clang 以外は対象外だが、非 GNU 経路の動作は tcc 0.9.27 で確認した（[VERIFICATION_LOG.md](../VERIFICATION_LOG.md) v2 節）。
+未使用の `static inline` 関数の本体を検査しない処理系では、G-013 / G-015 の規約違反は定義時点ではなく、述語を呼んだ時点で検出される。
+
 この制約は「規格を読み込めば回避できる」ものではなく、**そもそも規格の対象外の機能に依存している**
 という性質のものであり、[C-04](#c-04) / [C-10](#c-10) のような規格条文との突き合わせが
 原理的に成立しない領域である。

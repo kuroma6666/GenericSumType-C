@@ -9,6 +9,7 @@
 #   ./run.sh                    デフォルト: gcc, -std=c11
 #   CC=clang STD=c17 ./run.sh   コンパイラ / C標準を切り替える
 #   EXTRA_CFLAGS=-O2 ./run.sh   追加フラグ（最適化・サニタイザ等）
+#   COMPILE_ONLY=1 ./run.sh     run-pass もコンパイルだけ行う（実行できないクロスコンパイラ用）
 #   ./run.sh G-009 G-017        指定した id だけ実行する
 #
 # compile-fail のケースは対照コンパイルを必須とする。ケース断片は誤り箇所を
@@ -97,6 +98,15 @@ $(sed 's/^/  /' "$TMP/fix.log" | head -20)"; return
             srcs=("$src")
         else
             report NG "$id" "$title" "  ケース断片が無い: cases/$id.c も cases/$id/ も存在しない"; return
+        fi
+        if [ "${COMPILE_ONLY:-0}" = 1 ]; then
+            local f
+            for f in "${srcs[@]}"; do
+                if ! "$CC" "${CFLAGS[@]}" "${inc[@]}" -c "$f" -o "$build/$(basename "$f").o" 2>"$TMP/err.log"; then
+                    report NG "$id" "$title" "$(sed 's/^/  /' "$TMP/err.log" | head -20)"; return
+                fi
+            done
+            report OK "$id" "$title (compile only)"; return
         fi
         if ! "$CC" "${CFLAGS[@]}" "${inc[@]}" "${srcs[@]}" -o "$build/a.out" 2>"$TMP/err.log"; then
             report NG "$id" "$title" "$(sed 's/^/  /' "$TMP/err.log" | head -20)"; return

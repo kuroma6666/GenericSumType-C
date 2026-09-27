@@ -84,7 +84,12 @@ int main(void) {
            LogRecord_get_number(&dst) != NULL ? "yes" : "no");
     g_simulate_oom = 0;
     rc = LogRecord_try_copy(&dst, &original, try_copy_text, try_copy_number);
-    printf("rc=%d dst=\"%s\"\n", rc, LogRecord_get_text(&dst)->msg);
+    const LogText *dup = LogRecord_get_text_const(&dst);
+    if (rc != 0 || dup == NULL) {
+        printf("try_copy 失敗: rc=%d\n", rc);
+        return 1;
+    }
+    printf("rc=%d dst=\"%s\"\n", rc, dup->msg);
 
     LogRecord_destroy(&original, destroy_text, destroy_number);
     LogRecord_destroy(&original, destroy_text, destroy_number);   /* 空状態なので何もしない */
