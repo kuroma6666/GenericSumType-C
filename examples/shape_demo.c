@@ -14,9 +14,9 @@
  *   - 同一 SumType に対し用途の異なる match を2つ定義する。
  *
  * 【実装方針】
- *   - DEFINE_SUM_MATCH を用途別に2回（fill_cost / label）呼ぶ。
+ *   - SUM_DEFINE_MATCH を用途別に2回（fill_cost / label）呼ぶ。
  *   - 各 variant を専用 struct にすることで、面積ハンドラと別ハンドラの
- *     取り違えも型で検出できる（design_spec 3節: 素の基本型を避ける）。
+ *     取り違えも型で検出できる（docs/constraints.md C-01: 素の基本型を避ける）。
  *
  * 仕様の詳細: examples/specs/draw_primitive.md
  */
@@ -32,9 +32,9 @@ typedef struct { double base, height; } Triangle;
     X(NAME, EXTRA, rectangle, Rectangle)   \
     X(NAME, EXTRA, triangle,  Triangle)
 
-DEFINE_SUM_TYPE(Shape, SHAPE_VARIANTS)
-DEFINE_SUM_MATCH(Shape, SHAPE_VARIANTS, Shape_fill_cost, double)
-DEFINE_SUM_MATCH(Shape, SHAPE_VARIANTS, Shape_label, const char *)
+SUM_DEFINE_TYPE(Shape, SHAPE_VARIANTS)
+SUM_DEFINE_MATCH(Shape, SHAPE_VARIANTS, Shape_fill_cost, double)
+SUM_DEFINE_MATCH(Shape, SHAPE_VARIANTS, Shape_label, const char *)
 
 static double cost_circle(Circle *c)       { return 3.14159265358979 * c->radius * c->radius; }
 static double cost_rectangle(Rectangle *r) { return r->width * r->height; }

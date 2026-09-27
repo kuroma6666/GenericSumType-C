@@ -11,8 +11,8 @@
  *   - fill_cost 合計を求める。個々のプリミティブは const のまま検査する。
  *
  * 【実装方針】
- *   - DEFINE_SUM_MATCH_CONST（self=const NAME*, ハンドラ=Type const*）を使う。
- *     可変版 DEFINE_SUM_MATCH は self が非const のため const Shape* から呼べず
+ *   - SUM_DEFINE_MATCH_CONST（self=const NAME*, ハンドラ=Type const*）を使う。
+ *     可変版 SUM_DEFINE_MATCH は self が非const のため const Shape* から呼べず
  *     （discards const）、read-only 契約に不適。
  *   - 取り出しは const ゲッター NAME_get_<tag>_const（Type const* を返す）。
  *
@@ -30,9 +30,9 @@ typedef struct { double base, height; } Triangle;
     X(NAME, EXTRA, rectangle, Rectangle)   \
     X(NAME, EXTRA, triangle,  Triangle)
 
-DEFINE_SUM_TYPE(Shape, SHAPE_VARIANTS)
-DEFINE_SUM_MATCH_CONST(Shape, SHAPE_VARIANTS, Shape_fill_cost, double)
-DEFINE_SUM_MATCH_CONST(Shape, SHAPE_VARIANTS, Shape_label, const char *)
+SUM_DEFINE_TYPE(Shape, SHAPE_VARIANTS)
+SUM_DEFINE_MATCH_CONST(Shape, SHAPE_VARIANTS, Shape_fill_cost, double)
+SUM_DEFINE_MATCH_CONST(Shape, SHAPE_VARIANTS, Shape_label, const char *)
 
 static double cost_circle(const Circle *c)       { return 3.14159265358979 * c->radius * c->radius; }
 static double cost_rectangle(const Rectangle *r) { return r->width * r->height; }

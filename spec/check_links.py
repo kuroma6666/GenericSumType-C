@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""リポジトリ内の Markdown 相互リンク（ファイルパスとアンカー）を検査する。
+"""リポジトリ内の相互参照を検査する。
+
+1. Markdown のリンク（ファイルパスとアンカー）が解決すること。
+2. ソースコード（.c / .h / .sh / .yml / .py）のコメント中の参照が解決すること。
+   - `docs/...md` などのパス、`docs/adr/NNNN` が存在すること
+   - `C-01` / `G-001` という ID が constraints.md / GUARANTEES.md に存在すること
+   - 旧 design_spec.md の節番号参照（`design_spec`、`4.10節` 等）が残っていないこと
+     （design_spec.md は移設マップのみで、節番号は改版で動くため ID で参照する規約）
 
 制約と保証には C-01 / G-001 という安定した ID を振り、他の文書からはその ID で
-参照する規約にしている。この規約は、リンクが実際に解決することを機械的に
-確かめて初めて意味を持つ。ID を振り替えたりファイルを移動したときに、
-参照側の直し忘れをここで落とす。
+参照する規約にしている。この規約は、参照が実際に解決することを機械的に
+確かめて初めて意味を持つ。
 
     python3 spec/check_links.py
 
@@ -33,6 +39,49 @@ def markdown_files():
         for name in filenames:
             if name.endswith(".md"):
                 yield os.path.join(dirpath, name)
+
+
+SOURCE_EXT = (".c", ".h", ".sh", ".yml", ".yaml", ".py")
+SRC_PATH = re.compile(r"\b((?:docs|spec|examples|include|tests|verify|scripts)/[\w./-]+\.(?:md|c|h|sh|tsv|py)"
+                      r"|(?:api_reference|VERIFICATION_LOG|CHANGELOG|README)\.md)")
+SRC_ADR = re.compile(r"\bdocs/adr/(\d{4})\b")
+SRC_ID = re.compile(r"\b([CG])-(\d{2,3})\b")
+SRC_STALE = re.compile(r"design_spec|\d+(?:\.\d+)?節")
+
+
+def source_files():
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for name in filenames:
+            if name.endswith(SOURCE_EXT):
+                yield os.path.join(dirpath, name)
+
+
+def check_sources(anchors):
+    problems = []
+    adr_dir = os.path.join(ROOT, "docs", "adr")
+    adrs = {n[:4] for n in os.listdir(adr_dir)} if os.path.isdir(adr_dir) else set()
+    this = os.path.abspath(__file__)
+    for path in source_files():
+        if os.path.abspath(path) == this:
+            continue
+        here = rel(path)
+        for lineno, line in enumerate(open(path, encoding="utf-8", errors="replace"), 1):
+            for m in SRC_PATH.finditer(line):
+                target = m.group(1).rstrip(".")
+                if not os.path.exists(os.path.join(ROOT, target)):
+                    problems.append(f"{here}:{lineno}: 存在しないパス {target}")
+            for m in SRC_ADR.finditer(line):
+                if m.group(1) not in adrs:
+                    problems.append(f"{here}:{lineno}: 存在しない ADR docs/adr/{m.group(1)}")
+            for m in SRC_ID.finditer(line):
+                kind, num = m.group(1), m.group(2)
+                doc = "docs/constraints.md" if kind == "C" else "docs/GUARANTEES.md"
+                if f"{kind.lower()}-{num}" not in anchors.get(doc, set()):
+                    problems.append(f"{here}:{lineno}: {doc} に存在しない ID {kind}-{num}")
+            if SRC_STALE.search(line):
+                problems.append(f"{here}:{lineno}: 旧 design_spec の節番号参照が残っている")
+    return problems
 
 
 def rel(path: str) -> str:
@@ -71,6 +120,18 @@ def main() -> int:
             if anchor and target_rel in anchors and anchor not in anchors[target_rel]:
                 problems.append(f"{here}: アンカーが存在しない -> {link}")
 
+    problems.extend(check_sources(anchors))
+
+    # 経緯を記録する文書以外の Markdown に、旧 design_spec の節番号参照が残っていないか
+    history_docs = {"design_spec.md", "VERIFICATION_LOG.md", "CHANGELOG.md"}
+    for path in markdown_files():
+        here = rel(path)
+        if here in history_docs:
+            continue
+        for lineno, line in enumerate(open(path, encoding="utf-8", errors="replace"), 1):
+            if re.search(r"design_spec(?:\.md)?\s*\d", line):
+                problems.append(f"{here}:{lineno}: 旧 design_spec の節番号参照が残っている")
+
     if problems:
         print(f"NG  リンク不良 {len(problems)} 件:")
         for p in problems:
@@ -79,7 +140,7 @@ def main() -> int:
 
     total = sum(len(LINK.findall(open(p, encoding="utf-8", errors="replace").read()))
                 for p in markdown_files())
-    print(f"OK  Markdown リンク検査: {total} 件すべて解決")
+    print(f"OK  Markdown リンク {total} 件・ソースコード中の参照すべて解決")
     return 0
 
 

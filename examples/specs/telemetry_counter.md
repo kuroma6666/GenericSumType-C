@@ -11,9 +11,9 @@
 - +1 と -1 を同数スレッドで回し、最終値が必ず 0 になること。
 
 ## 実装対応
-- `DEFINE_SUM_DISPATCH` が switch 前後で呼ぶ `SUM_CTX_LOCK`/`SUM_CTX_UNLOCK` フックに、ヘッダ include 前に pthread_mutex を `#define` して差し込む。
-- RTOS ではこのフックをセマフォ等に差し替えるだけ（ライブラリ本体は不変）。
+- `SUM_DEFINE_DISPATCH_LOCKED` に pthread_mutex のロック/アンロック関数を渡す。ロックは定義箇所で型ごとに決まる（[ADR-0014](../../docs/adr/0014-dispatch-ret-and-locked.md)）。
+- RTOS では渡す関数をセマフォ等に差し替えるだけ（ライブラリ本体は不変）。
 
 ## 受け入れ基準
 - 8スレッド並行で最終カウンタが 0（ロックが lost update を防いでいる）。
-- 注意: ハンドラ内から同一 ctx へ再 dispatch すると非再帰ロックでデッドロック（design_spec 4.8節）。本デモは再入しない。
+- 注意: ハンドラ内から同一 ctx へ再 dispatch すると非再帰ロックでデッドロック（[C-09](../../docs/constraints.md#c-09)）。本デモは再入しない。

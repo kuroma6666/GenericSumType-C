@@ -4,7 +4,7 @@
  * protocol_frame_demo.c と tests/test_protocol_frame.c から共有される
  * 「通信処理系」フレームの型・MATCH定義・分類ロジック・チェックサム計算。
  *
- * design_spec.md 4.10節で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
+ * docs/constraints.md C-11 / spec G-007 で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
  * 複数の.cからincludeする」というパターンを応用している。
  *
  * 参考: PALLASER社 レーザーマーカー 通信コマンド仕様書 Ver.2.0
@@ -26,7 +26,6 @@
 #define NG_T003_FORMAT_ERROR  3  /* フォーマットエラー */
 #define NG_T004_CONTENT_ERROR 4  /* コンテンツエラー */
 
-SUM_MAYBE_UNUSED
 static inline const char *ng_error_name(int code) {
     switch (code) {
         case NG_T001_STX_ERROR:     return "T001 STXエラー";
@@ -41,7 +40,6 @@ static inline const char *ng_error_name(int code) {
  * 送信データ(デリミタを除く)の各バイトのASCIIコード値を単純合計し、
  * 256で割った余り(オーバーフローは無視)を2桁の16進数文字列(大文字)にする。
  */
-SUM_MAYBE_UNUSED
 static inline unsigned char compute_checksum(const char *data, size_t len) {
     unsigned int sum = 0;
     for (size_t i = 0; i < len; ++i) {
@@ -50,7 +48,6 @@ static inline unsigned char compute_checksum(const char *data, size_t len) {
     return (unsigned char)(sum % 256);
 }
 
-SUM_MAYBE_UNUSED
 static inline void format_checksum_hex(unsigned char csum, char out[3]) {
     static const char hex[] = "0123456789ABCDEF";
     out[0] = hex[(csum >> 4) & 0xF];
@@ -73,25 +70,21 @@ typedef struct { int error_code; }                  FrameNgReply;     /* NG,Txxx
     X(NAME, EXTRA, ok_reply,      FrameOkReply)       \
     X(NAME, EXTRA, ng_reply,      FrameNgReply)
 
-DEFINE_SUM_TYPE(Frame, FRAME_VARIANTS)
-DEFINE_SUM_MATCH(Frame, FRAME_VARIANTS, Frame_describe, int)
+SUM_DEFINE_TYPE(Frame, FRAME_VARIANTS)
+SUM_DEFINE_MATCH(Frame, FRAME_VARIANTS, Frame_describe, int)
 
-SUM_MAYBE_UNUSED
 static inline int describe_write(FrameWriteRequest *f) {
     printf("[FRAME] Write要求  command=%-4s args=\"%s\"\n", f->command, f->args);
     return 0;
 }
-SUM_MAYBE_UNUSED
 static inline int describe_read(FrameReadRequest *f) {
     printf("[FRAME] Read要求   command=%-4s args=\"%s\"\n", f->command, f->args);
     return 0;
 }
-SUM_MAYBE_UNUSED
 static inline int describe_ok(FrameOkReply *f) {
     printf("[FRAME] OK応答     payload=\"%s\"\n", f->payload);
     return 0;
 }
-SUM_MAYBE_UNUSED
 static inline int describe_ng(FrameNgReply *f) {
     printf("[FRAME] NG応答     %s\n", ng_error_name(f->error_code));
     return 0;
@@ -102,7 +95,6 @@ static inline int describe_ng(FrameNgReply *f) {
  * 実際の仕様書ではSTX/ETX付加の有無やチェックサム検証も併せて行うが、
  * ここではフレーム種別の判定ロジックに焦点を絞っている。
  */
-SUM_MAYBE_UNUSED
 static inline Frame classify_line(const char *line) {
     if (strncmp(line, "W,", 2) == 0) {
         FrameWriteRequest f = { { 0 }, { 0 } };

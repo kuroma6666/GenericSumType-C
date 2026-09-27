@@ -3,8 +3,8 @@
 typedef struct { int a; } PA;
 typedef struct { int b; } PB;
 #define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, b, PB)
-DEFINE_SUM_TYPE(T, V)
-DEFINE_SUM_DISPATCH(T, V, T_dispatch, int)
+SUM_DEFINE_TYPE(T, V)
+SUM_DEFINE_DISPATCH(T, V, T_dispatch, int)
 static void ha(PA *p, int *c) { (void)p; (void)c; }
 static void hb(PB *p, int *c) { (void)p; (void)c; }
 int main(void) {

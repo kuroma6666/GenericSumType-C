@@ -185,3 +185,67 @@ GCCの`-fanalyzer`も試したが、このsandbox環境の`gcc 11.4.0`では`cha
 ### 決定済み・スコープ外とした項目(design_spec.md 8節に集約済み)
 
 再帰的直和型のサポート見送り、MSVCサポート見送り、関数テーブル方式の不採用など、決定済みでスコープ外とした項目の一覧は `design_spec.md` 8節に残してある(結論のみで経緯を追う必要がないため)。
+
+---
+
+## v2（2026-09）: 訂正と検証の記録
+
+v2 で覆った結論と、その根拠になった実測をここに集約する。設計判断は ADR-0011〜0018、現在の制約は
+[docs/constraints.md](./docs/constraints.md) が正であり、本節は「何が誤っていたか」の記録に限る。
+検証環境: gcc 13.3.0 / clang 18.1.3 / CBMC 5.95.1（Ubuntu 24.04）。
+
+### 訂正した結論
+
+| 旧い記述 | 誤り | 現在の置き場所 |
+|---|---|---|
+| ADR-0010「値を返すディスパッチャは戻り値を用意できないので `SUM_UNREACHABLE()` 以外に手がない」 | 停止（trap）すれば値は不要。未定義動作を選ぶ必然性は無かった | [ADR-0011](./docs/adr/0011-default-label-and-trap.md) |
+| ADR-0001 / ADR-0010「`default:` を置くと `-Wswitch` が無効化されるので置かない」 | enum と case 列は同じ VARIANTS から生成され、ずれ得ない。`-Wswitch` が守る対象が無い。逆に `-Wswitch-default` を14件（examples）出していた | [ADR-0011](./docs/adr/0011-default-label-and-trap.md) |
+| ADR-0001 / README「網羅性がビルドフラグに依存しない」ことが差別化点 | 本ライブラリ自身が `-Wall -Werror` を必須にしている。その下では `-Wswitch` 方式（datatype99）も網羅漏れをエラーにする | [ADR-0018](./docs/adr/0018-exhaustiveness-by-arity.md) |
+| 本ファイル 8節「ロック方針はヘッダを最初に include した時点で TU ごとに確定する」、C-09「ロック要否で TU を分割する」 | フックは `SUM_DEFINE_DISPATCH` を**展開した時点**で評価される。DEFINE の間で `#undef` / 再定義すれば同一 TU 内で切り替わる（実測: 同一 TU の2つの DISPATCH で異なるロック回数） | [C-09](./docs/constraints.md#c-09), [ADR-0014](./docs/adr/0014-dispatch-ret-and-locked.md) |
+| `spec/run.sh` の compile-fail 判定 | 「落ちたこと」だけを見ており、無関係な typo でも OK になった。v1 の9件は実際には意図通りの理由で落ちていたが、それは検査されていなかった | [spec/README.md](./spec/README.md)（対照コンパイル） |
+| 本ファイル 8節末尾「決定済み項目は design_spec.md 8節に集約済み」 | design_spec.md は移設マップになっており 8節は存在しない。決定済み項目は docs/adr/、未決の課題は GitHub Issues | [docs/adr/](./docs/adr/) |
+
+### 実測: 不正 tag での未定義動作（v1）
+
+```c
+DEFINE_SUM_MATCH(T, V, T_m, int)   /* ha は "ha called" と 1、hb は "hb called" と 2 を返す */
+t.tag = (T_tag_t)(argc + 5);
+printf("ret=%d\n", T_m(&t, ha, hb));
+```
+
+`-O2` で gcc / clang とも `hb called` / `ret=2` と出力された。無関係なハンドラが呼ばれ、クラッシュもしなかった。
+v2 では同じコードが `SUM_TRAP()`（`__builtin_trap`）で停止する（SIGILL、終了コード 132）。回帰検査は [G-020](./docs/GUARANTEES.md#g-020)。
+
+### 実測: NULL ハンドラ（v1）
+
+`T_m(&t, ha, 0)` は `-Wall -Wextra -Werror` でもコンパイルが通り、実行時に SIGSEGV（終了コード 139、gcc / clang）になった。
+v2 では `-Wnonnull` でコンパイルエラーになる（[G-021](./docs/GUARANTEES.md#g-021)）。
+
+### 実測: tag 名の衝突（v1）
+
+tag `a` と `get_a` を同じ型に置くと `'T_get_a' redeclared as different kind of symbol` になった（enum 定数 `T_get_a` とゲッター `T_get_a` の衝突）。
+v2 では [G-028](./docs/GUARANTEES.md#g-028) で衝突しないことを検査している。
+
+### CBMC: 同じ値への二重 destroy
+
+`verify/cbmc_destroy_harness.c` に `double_destroy_case` を追加した。
+
+| ヘッダ | `safe_case` | `leaked_case` | `double_free_case` | `double_destroy_case` |
+|---|---|---|---|---|
+| v1 | — | — | — | FAILED（2 of 136 failed, double free） |
+| v2 | SUCCESSFUL（0 of 142） | FAILED（1 of 112, memory-leak） | FAILED（2 of 142, double free） | SUCCESSFUL（0 of 142） |
+
+構造体コピーした別変数の二重解放（`double_free_case`）は v2 でも検出される。つまり防げていない（[C-03](./docs/constraints.md#c-03)）。
+
+### 実測: datatype99 との比較
+
+datatype99 v1.6.5 を clone し、3 variant のうち1腕を省いた `match` を作って確かめた。
+
+| 条件 | 結果 |
+|---|---|
+| 警告フラグなし | 黙ってコンパイルが通る |
+| `-Wall -Werror`（gcc / clang） | `enumeration value 'GuardTag' not handled in switch` でエラー |
+| 2つの型に同名 variant `Ok` | `conflicting types for 'OkSumT'` |
+| 最小ファイル1件のコンパイル時間 | 0.22 s（本ライブラリの同規模ファイルは 0.03 s。1回の計測で、規模による伸びは未測定） |
+
+比較の結論は [requirements.md](./docs/requirements.md#既存の選択肢との比較) に置いた。

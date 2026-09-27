@@ -8,7 +8,13 @@
 #
 #   ./run.sh                    デフォルト: gcc, -std=c11
 #   CC=clang STD=c17 ./run.sh   コンパイラ / C標準を切り替える
+#   EXTRA_CFLAGS=-O2 ./run.sh   追加フラグ（最適化・サニタイザ等）
 #   ./run.sh G-009 G-017        指定した id だけ実行する
+#
+# compile-fail のケースは対照コンパイルを必須とする。ケース断片は誤り箇所を
+# `#ifndef SPEC_FIXED` で囲み、`-DSPEC_FIXED` を付けるとコンパイルが通らなければならない。
+# これにより「そのケースが意図した1箇所だけが原因で落ちている」ことを、
+# 診断メッセージの文言に依存せずに確かめる（無関係な typo で落ちても OK にならない）。
 set -u
 
 SPEC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +22,8 @@ HEADER_DIR="$(cd "$SPEC_DIR/../include" && pwd)"
 MANIFEST="$SPEC_DIR/manifest.tsv"
 CC="${CC:-gcc}"
 STD="${STD:-c11}"
-CFLAGS=(-std="$STD" -pedantic -Wall -Wextra -Werror -I"$HEADER_DIR")
+# shellcheck disable=SC2206
+CFLAGS=(-std="$STD" -pedantic -Wall -Wextra -Werror -I"$HEADER_DIR" ${EXTRA_CFLAGS:-})
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -55,19 +62,31 @@ run_case() {
     local dir="$SPEC_DIR/cases/$id"
 
     case "$expect" in
-    compile-fail|compile-pass)
+    compile-pass)
         if [ ! -f "$src" ]; then
             report NG "$id" "$title" "  ケース断片が無い: cases/$id.c"; return
         fi
         if "$CC" "${CFLAGS[@]}" -c "$src" -o "$TMP/out.o" 2>"$TMP/err.log"; then
-            [ "$expect" = compile-pass ] \
-                && report OK "$id" "$title" \
-                || report NG "$id" "$title" "  コンパイルが成功してしまった（失敗するはずだった）"
+            report OK "$id" "$title"
         else
-            [ "$expect" = compile-fail ] \
-                && report OK "$id" "$title" \
-                || report NG "$id" "$title" "$(sed 's/^/  /' "$TMP/err.log" | head -20)"
+            report NG "$id" "$title" "$(sed 's/^/  /' "$TMP/err.log" | head -20)"
         fi
+        ;;
+    compile-fail)
+        if [ ! -f "$src" ]; then
+            report NG "$id" "$title" "  ケース断片が無い: cases/$id.c"; return
+        fi
+        if ! grep -q 'SPEC_FIXED' "$src"; then
+            report NG "$id" "$title" "  対照が無い: 誤り箇所を #ifndef SPEC_FIXED で囲むこと"; return
+        fi
+        if "$CC" "${CFLAGS[@]}" -c "$src" -o "$TMP/out.o" 2>"$TMP/err.log"; then
+            report NG "$id" "$title" "  コンパイルが成功してしまった（失敗するはずだった）"; return
+        fi
+        if ! "$CC" "${CFLAGS[@]}" -DSPEC_FIXED -c "$src" -o "$TMP/out.o" 2>"$TMP/fix.log"; then
+            report NG "$id" "$title" "  対照（-DSPEC_FIXED）も失敗した。落ちた原因が意図した箇所ではない:
+$(sed 's/^/  /' "$TMP/fix.log" | head -20)"; return
+        fi
+        report OK "$id" "$title"
         ;;
     run-pass)
         local build="$TMP/$id"; mkdir -p "$build"
@@ -111,4 +130,4 @@ done < "$MANIFEST"
 
 echo
 echo "$pass 件成功 / $fail 件失敗 / $skip 件スキップ"
-exit "$fail"
+[ "$fail" -eq 0 ]

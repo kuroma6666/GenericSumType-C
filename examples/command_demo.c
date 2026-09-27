@@ -15,10 +15,10 @@
  *   - MotorState{ pos, rpm } を共有コンテキスト(ctx)として渡し、dispatch で更新する。
  *
  * 【実装方針】
- *   - 副作用（ctx への書き込み）を伴うため DEFINE_SUM_MATCH ではなく
- *     DEFINE_SUM_DISPATCH を使う（ハンドラは payload と ctx を受け取る／戻り値 void）。
+ *   - 副作用（ctx への書き込み）を伴うため SUM_DEFINE_MATCH ではなく
+ *     SUM_DEFINE_DISPATCH を使う（ハンドラは payload と ctx を受け取る／戻り値 void）。
  *   - stop はデータを持たないが「1 variant = 1 型」の制約によりダミー struct で表す
- *     （design_spec 4.4節）。
+ *     （docs/constraints.md C-06）。
  *
  * 仕様の詳細: examples/specs/motor_command.md
  */
@@ -36,8 +36,8 @@ typedef struct { int _unused; } Stop;   /* データなし。ダミー1フィー
 
 typedef struct { long pos; int rpm; } MotorState;
 
-DEFINE_SUM_TYPE(MotorCmd, MOTOR_CMD)
-DEFINE_SUM_DISPATCH(MotorCmd, MOTOR_CMD, MotorCmd_apply, MotorState)
+SUM_DEFINE_TYPE(MotorCmd, MOTOR_CMD)
+SUM_DEFINE_DISPATCH(MotorCmd, MOTOR_CMD, MotorCmd_apply, MotorState)
 
 static void on_set_speed(SetSpeed *c, MotorState *s) { s->rpm = c->rpm; }
 static void on_move_by(MoveBy *c, MotorState *s)     { s->pos += c->steps; }

@@ -16,33 +16,54 @@
 | `cases/G-NNN/` | 複数ファイルが要るケース（翻訳単位をまたぐ検証など） |
 | `run.sh` | 判定。コンパイラを実際に走らせて期待結果と突き合わせる |
 | `emit.sh` | `docs/GUARANTEES.md` を生成する |
-| `check_links.py` | Markdown の相互リンク（パスとアンカー）が解決するか検査する |
+| `check_links.py` | Markdown の相互リンクと、ソースコード中の参照（文書パス・ADR 番号・`C-xx` / `G-xxx`）が解決するか検査する |
 
 `docs/GUARANTEES.md` は**生成物であり手で編集してはならない**。CI が `emit.sh --check` で
-同期を検査しているため、`manifest.tsv` だけ直してドキュメントを直し忘れる、あるいはその逆、
-という乖離が構造的に起きない。以前は保証の一覧が仕様書とスクリプトの両方に手書きされており、
-実際に食い違っていた（スクリプトに14件、仕様書の表に7件）。
+同期を検査しているため、`manifest.tsv` とドキュメントの乖離は構造的に起きない。
 
 ## 使い方
 
 ```sh
 ./run.sh                     # gcc / -std=c11（既定）で全件実行
 CC=clang STD=c17 ./run.sh    # コンパイラ・C標準を切り替える
+EXTRA_CFLAGS=-O2 ./run.sh    # 追加フラグ（CI の sanitize モードは -O2 + ASan + UBSan）
 ./run.sh G-009 G-017         # 指定した id だけ実行する
 
 ./emit.sh                    # 生成結果を標準出力に出す
 ./emit.sh --write            # docs/GUARANTEES.md を更新する
 ./emit.sh --check            # 同期しているか検査する（CI がこれを実行する）
 
-python3 check_links.py       # Markdown の相互リンクが解決するか検査する
+python3 check_links.py       # 文書とソースコード中の相互参照が解決するか検査する
 ```
 
 ## ケースを追加する
 
 1. `cases/G-NNN.c` を書く。冒頭のコメントに「何を確かめているか」を書く
+   - `compile-fail` のケースは、誤り箇所を `#ifndef SPEC_FIXED` ... `#else` 正しい形 `#endif` で囲む（下記）
 2. `manifest.tsv` に1行足す
 3. `./run.sh` で期待通りになるか確かめる
 4. `./emit.sh --write` で `docs/GUARANTEES.md` を再生成し、両方をコミットする
+
+### compile-fail の対照コンパイル
+
+`run.sh` は compile-fail のケースを2回コンパイルする。
+
+1. そのまま → **失敗しなければならない**
+2. `-DSPEC_FIXED` 付き → **成功しなければならない**
+
+2 があるので、ケースが「意図した1箇所だけを原因に」落ちていることを、診断メッセージの文言に依存せずに確かめられる。
+これが無いと、ケース内の typo や include 漏れといった無関係な理由で落ちても OK と判定されてしまう。
+`SPEC_FIXED` を含まない compile-fail ケースは、それだけで NG になる。
+
+診断メッセージを正規表現で照合する方式は採らなかった。gcc と clang で文言が違い（G-002 は警告名から違う）、バージョン更新でも壊れるため。
+
+```c
+#ifndef SPEC_FIXED
+    T_dispatch(&t, &ctx, ha);           /* b, c 用のハンドラが無い */
+#else
+    T_dispatch(&t, &ctx, ha, hb, hc);
+#endif
+```
 
 ### kind の選び方
 
@@ -50,7 +71,7 @@ python3 check_links.py       # Markdown の相互リンクが解決するか検�
 - **`known-limit`** — 約束しない（できない）ことの固定。将来検出できるようになってもよいが、
   そのときは根拠文書もあわせて更新する
 
-`known-limit` に `compile-pass` を期待するケース（G-003, G-018）は「バグが素通りすること」を
+`known-limit` に `compile-pass` を期待するケース（G-003, G-018, G-022）は「バグが素通りすること」を
 期待している。**テストが落ちたら喜んでよい種類のケース**であり、その場合はこの表と
 `docs/constraints.md` を更新する。
 
@@ -74,6 +95,6 @@ G-017 と G-018 はこの対比の実例で、**同じ設計ミスが C11 では
 | ランタイム挙動 | `tests/test_*.c` | `assert()` + AddressSanitizer |
 | 解放漏れ・二重解放 | `verify/`（任意） | CBMC |
 
-`run-pass` のケース（G-007, G-019）だけは実行を伴うが、これは「ビルドが通るだけでは
-確かめられないが、保証の一部として一覧に載せたい」ものに限る。通常のランタイム挙動は
-`tests/` 側で検証する。
+`run-pass` のケース（G-007, G-019, G-020, G-023, G-025, G-030, G-032）は実行を伴う。これは
+「ビルドが通るだけでは確かめられないが、保証の一部として一覧に載せたい」ものに限る。
+通常のランタイム挙動は `tests/` 側で検証する。

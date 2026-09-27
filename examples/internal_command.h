@@ -4,7 +4,7 @@
  * internal_command_demo.c と tests/test_internal_command.c から共有される
  * 「内部処理系」コマンドの型・DISPATCH定義・ハンドラ本体。
  *
- * design_spec.md 4.10節で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
+ * docs/constraints.md C-11 / spec G-007 で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
  * 複数の.cからincludeする」というパターンを応用し、デモ本体(main()のみ)と
  * 単体テスト(ハンドラ/DISPATCHを直接assertする)がロジックを共有できるように
  * 分離している。ハンドラは各TUで同一定義になるよう static inline にしており、
@@ -24,7 +24,7 @@
 /* --- 各コマンドのpayload ---
  * MSP(印字停止)やERC(エラー解除)、GDS(ガイド光停止)はパラメータを持たない
  * コマンドだが、「素の基本型を直接使わずstructでラップする」という設計指針
- * (design_spec.md 3節)に倣い、単なるトリガーであっても専用structを与える。
+ * (docs/constraints.md C-01)に倣い、単なるトリガーであっても専用structを与える。
  */
 typedef struct { int kind; }       CmdPrintStart;   /* MST: 0=通常, 1=連続 */
 typedef struct { int reserved; }   CmdPrintStop;    /* MSP: パラメータなし */
@@ -41,7 +41,7 @@ typedef struct { int reserved; }   CmdGuideStop;    /* GDS: パラメータな�
     X(NAME, EXTRA, guide_start,  CmdGuideStart)       \
     X(NAME, EXTRA, guide_stop,   CmdGuideStop)
 
-DEFINE_SUM_TYPE(InternalCommand, INTERNAL_COMMAND_VARIANTS)
+SUM_DEFINE_TYPE(InternalCommand, INTERNAL_COMMAND_VARIANTS)
 
 /* デバイスの内部状態。通信層とは完全に切り離されており、
  * 「今デバイスがどう振る舞っているか」だけを表す。 */
@@ -54,15 +54,14 @@ typedef struct {
     int error_active;        /* エラーが発生中か */
 } LaserDeviceState;
 
-DEFINE_SUM_DISPATCH(InternalCommand, INTERNAL_COMMAND_VARIANTS,
+SUM_DEFINE_DISPATCH(InternalCommand, INTERNAL_COMMAND_VARIANTS,
                      InternalCommand_dispatch, LaserDeviceState)
 
 /* --- 各コマンドのハンドラ: デバイス状態(ctx)を実際に書き換える ---
- * static inline にすることで、demo/testの両TUに同一定義を展開しつつ、
- * 未使用の場合の警告(SUM_MAYBE_UNUSED相当)を避けている。
+ * static inline にして demo/test の両TUに同一定義を展開する
+ * (ヘッダ内で未使用の static inline 関数は gcc/clang とも警告しない)。
  */
 
-SUM_MAYBE_UNUSED
 static inline void on_print_start(CmdPrintStart *c, LaserDeviceState *st) {
     st->printing = 1;
     st->print_mode = c->kind;
@@ -70,7 +69,6 @@ static inline void on_print_start(CmdPrintStart *c, LaserDeviceState *st) {
            c->kind == 1 ? "連続" : "通常");
 }
 
-SUM_MAYBE_UNUSED
 static inline void on_print_stop(CmdPrintStop *c, LaserDeviceState *st) {
     (void)c;
     /* 実機の仕様書と同様、「印字中の即時停止はできない」という制約を
@@ -79,20 +77,17 @@ static inline void on_print_stop(CmdPrintStop *c, LaserDeviceState *st) {
     printf("[print_stop]  printing停止\n");
 }
 
-SUM_MAYBE_UNUSED
 static inline void on_run_control(CmdRunControl *c, LaserDeviceState *st) {
     st->running = c->mode;
     printf("[run_control] mode=%d -> running=%d\n", c->mode, st->running);
 }
 
-SUM_MAYBE_UNUSED
 static inline void on_error_clear(CmdErrorClear *c, LaserDeviceState *st) {
     (void)c;
     st->error_active = 0;
     printf("[error_clear] エラーを解除しました\n");
 }
 
-SUM_MAYBE_UNUSED
 static inline void on_guide_start(CmdGuideStart *c, LaserDeviceState *st) {
     static const char *kind_name[] = { "四角ガイド", "輪郭ガイド", "WDガイド" };
     /* テスト作成時に気づいた点: 以前はkindの範囲チェックを表示名の選択にしか
@@ -109,7 +104,6 @@ static inline void on_guide_start(CmdGuideStart *c, LaserDeviceState *st) {
     printf("[guide_start] kind=%s\n", kind_name[c->kind]);
 }
 
-SUM_MAYBE_UNUSED
 static inline void on_guide_stop(CmdGuideStop *c, LaserDeviceState *st) {
     (void)c;
     st->guide_on = 0;

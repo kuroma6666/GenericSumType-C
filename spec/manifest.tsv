@@ -9,6 +9,7 @@
 #   kind    guarantee  = ライブラリが約束する挙動。破れたらバグ
 #           known-limit = 約束しない（できない）ことの固定。将来変わってよいがドキュメント更新が要る
 #   expect  compile-fail  / compile-pass / run-pass（ビルド・リンクして終了コード0）
+#           compile-fail はケース断片に `#ifndef SPEC_FIXED` の対照を必須とする（run.sh 冒頭参照）
 #   std     any / c11+ / c99only  … 実行対象の C 標準
 #   ref     根拠を説明する文書
 #   title   一行説明
@@ -24,7 +25,7 @@ G-005	known-limit	compile-fail	any	docs/constraints.md#c-02	関数ポインタ�
 G-006	guarantee	compile-pass	any	docs/constraints.md#c-02	typedef で単一トークン化した関数ポインタ型は渡せる
 G-007	guarantee	run-pass	any	docs/constraints.md#c-11	共通ヘッダを複数の翻訳単位から include して共有する
 G-008	guarantee	compile-fail	c11+	docs/adr/0008-generic-constructor-selection.md	SUM_NEW にどの variant とも一致しない型を渡す
-G-009	guarantee	compile-fail	c11+	docs/adr/0008-generic-constructor-selection.md	ペイロード型の重複を DEFINE_SUM_NEW_GENERIC の時点で検出する
+G-009	guarantee	compile-fail	c11+	docs/adr/0008-generic-constructor-selection.md	ペイロード型の重複を SUM_DEFINE_NEW_GENERIC の時点で検出する
 G-010	guarantee	compile-pass	c11+	docs/adr/0008-generic-constructor-selection.md	SUM_NEW が値の型からコンストラクタを選ぶ
 G-011	guarantee	compile-fail	any	docs/adr/0009-non-breaking-const-support.md	MATCH_CONST のハンドラがペイロードを書き換える
 G-012	guarantee	compile-pass	any	docs/adr/0009-non-breaking-const-support.md	const NAME* から const 版の match / getter を呼ぶ
@@ -35,3 +36,16 @@ G-016	guarantee	compile-pass	any	docs/adr/0005-either-result-thin-helpers.md	Res
 G-017	guarantee	compile-fail	c11+	docs/constraints.md#c-01	typedef 別名で同一型になった 2 variant を検出する
 G-018	known-limit	compile-pass	c99only	docs/constraints.md#c-01	C99 ではペイロード型の重複を検出できない
 G-019	guarantee	run-pass	any	docs/adr/0010-unhandled-tag-hook.md	不正 tag で SUM_UNHANDLED_TAG が発火しハンドラは呼ばれない
+G-020	guarantee	run-pass	any	docs/adr/0011-default-label-and-trap.md	値を返すディスパッチャは不正 tag・空状態でフック後 SUM_TRAP に進みハンドラを呼ばない
+G-021	guarantee	compile-fail	any	docs/adr/0016-nonnull-handlers.md	ハンドラに定数 NULL を渡す
+G-022	known-limit	compile-pass	any	docs/adr/0016-nonnull-handlers.md	変数経由の NULL ハンドラは検出できない
+G-023	guarantee	run-pass	any	docs/adr/0013-empty-tag-zero.md	ゼロ初期化値は空状態で、DESTROY 後も空状態に戻り2回目は no-op
+G-024	guarantee	compile-fail	any	docs/adr/0014-dispatch-ret-and-locked.md	DISPATCH_RET のハンドラを渡し忘れる
+G-025	guarantee	run-pass	any	docs/adr/0014-dispatch-ret-and-locked.md	DISPATCH_LOCKED で同一 TU 内に型ごとのロック方針を持てる
+G-026	guarantee	compile-fail	any	docs/adr/0015-copy-checked.md	COPY_CHECKED の型が異なるコピー関数を入れ替える
+G-027	guarantee	compile-pass	any	docs/adr/0011-default-label-and-trap.md	生成コードが -Wswitch-default / -Wswitch-enum を出さない
+G-028	guarantee	compile-pass	any	docs/adr/0012-naming-v2.md	v1 で衝突した tag 名（get_a, new_a, tag_t, is_a）を並べても衝突しない
+G-029	known-limit	compile-fail	any	docs/constraints.md#c-14	末尾が _const の tag 名は const ゲッター名と衝突する
+G-030	guarantee	run-pass	any	docs/adr/0012-naming-v2.md	v1 のマクロ名と SUM_LEGACY_TAG_NAMES で v1 のコードが通る
+G-031	guarantee	compile-fail	any	docs/adr/0012-naming-v2.md	SUM_NO_LEGACY_NAMES で v1 のマクロ名が消える
+G-032	guarantee	run-pass	any	docs/adr/0017-self-reference-by-pointer.md	payload から struct NAME* で自身の型を指せる

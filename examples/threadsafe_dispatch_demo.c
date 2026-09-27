@@ -13,26 +13,29 @@
  *   - +1 と -1 を同数のスレッドで回し、最終値が必ず 0 になること（ロックが効いている証拠）。
  *
  * 【実装方針】
- *   - DEFINE_SUM_DISPATCH が switch の前後で呼ぶ SUM_CTX_LOCK/UNLOCK フックに
- *     pthread_mutex を差し込む（本ヘッダ include の前に #define）。
- *   - RTOS ではこのフックをセマフォ等に差し替えるだけでよい（ライブラリ本体は不変）。
+ *   - SUM_DEFINE_DISPATCH_LOCKED に pthread_mutex のロック/アンロック関数を渡す。
+ *     ロックは定義箇所で型ごとに決まり、同じ翻訳単位の他の DISPATCH に影響しない
+ *     （docs/adr/0014）。
+ *   - RTOS では渡す関数をセマフォ等に差し替えるだけでよい（ライブラリ本体は不変）。
  *   - 注意: ハンドラ内から同一 ctx へ再 dispatch すると非再帰ロックでデッドロックする
- *     （design_spec 4.8節）。本デモは再入しない。
+ *     （docs/constraints.md C-09）。本デモは再入しない。
  *
  * 仕様の詳細: examples/specs/telemetry_counter.md
+ *
+ * ci-flags: -pthread
  */
 #define _POSIX_C_SOURCE 200809L
 #include <pthread.h>
 #include <stdio.h>
+#include "generic_sum_type.h"
 
 typedef struct {
     long counter;
     pthread_mutex_t mutex;
 } Counter;
 
-#define SUM_CTX_LOCK(ctx)   pthread_mutex_lock(&(ctx)->mutex)
-#define SUM_CTX_UNLOCK(ctx) pthread_mutex_unlock(&(ctx)->mutex)
-#include "generic_sum_type.h"
+static void counter_lock(Counter *c)   { pthread_mutex_lock(&c->mutex); }
+static void counter_unlock(Counter *c) { pthread_mutex_unlock(&c->mutex); }
 
 typedef struct { long amount; } CmdIncrement;
 typedef struct { long amount; } CmdDecrement;
@@ -41,8 +44,9 @@ typedef struct { long amount; } CmdDecrement;
     X(NAME, EXTRA, increment, CmdIncrement)  \
     X(NAME, EXTRA, decrement, CmdDecrement)
 
-DEFINE_SUM_TYPE(CounterCmd, COUNTER_CMD)
-DEFINE_SUM_DISPATCH(CounterCmd, COUNTER_CMD, CounterCmd_apply, Counter)
+SUM_DEFINE_TYPE(CounterCmd, COUNTER_CMD)
+SUM_DEFINE_DISPATCH_LOCKED(CounterCmd, COUNTER_CMD, CounterCmd_apply, Counter,
+                           counter_lock, counter_unlock)
 
 static void on_increment(CmdIncrement *c, Counter *ctx) { ctx->counter += c->amount; }
 static void on_decrement(CmdDecrement *c, Counter *ctx) { ctx->counter -= c->amount; }

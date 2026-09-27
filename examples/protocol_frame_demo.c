@@ -21,8 +21,8 @@
  * 変わったときの修正」が互いに影響しないようにできる。
  *
  * internal_command_demo.c / recipe_param_demo.c はいずれも
- * DEFINE_SUM_DISPATCH(共有ctxへの副作用)を使っているのに対し、
- * 本ファイルは DEFINE_SUM_MATCH(受信フレーム→文字列への純粋な変換)を
+ * SUM_DEFINE_DISPATCH(共有ctxへの副作用)を使っているのに対し、
+ * 本ファイルは SUM_DEFINE_MATCH(受信フレーム→文字列への純粋な変換)を
  * 使っている。フレーム解釈自体は「今何を受信したか」を判定するだけの
  * 副作用のない処理であるため、ctxを持たないMATCHの方が契約として素直、
  * という設計判断の実例でもある(api_reference.md 早見表を参照)。

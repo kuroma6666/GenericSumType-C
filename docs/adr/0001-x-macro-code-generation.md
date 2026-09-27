@@ -1,6 +1,6 @@
 # ADR-0001: 多相性の解決を X-Macro によるコンパイル時コード生成で行う
 
-- **状態:** 採用
+- **状態:** 採用（帰結のうち「`default:` を置かない」は [ADR-0011](./0011-default-label-and-trap.md)、「網羅性がビルドフラグに依存しない」は [ADR-0018](./0018-exhaustiveness-by-arity.md) が訂正）
 - **関連:** [G-001](../GUARANTEES.md#g-001), [G-002](../GUARANTEES.md#g-002), [G-004](../GUARANTEES.md#g-004), [C-01](../constraints.md#c-01), [C-12](../constraints.md#c-12)
 
 ## 文脈

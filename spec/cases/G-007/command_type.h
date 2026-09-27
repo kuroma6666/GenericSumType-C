@@ -12,10 +12,10 @@ typedef struct { int target; }  CmdAttack;
     X(NAME, EXTRA, move, CmdMove)    \
     X(NAME, EXTRA, attack, CmdAttack)
 
-DEFINE_SUM_TYPE(Command, CMD_VARIANTS)
+SUM_DEFINE_TYPE(Command, CMD_VARIANTS)
 
 typedef struct { int hp; int x, y; } GameState;
 
-DEFINE_SUM_DISPATCH(Command, CMD_VARIANTS, Command_dispatch, GameState)
+SUM_DEFINE_DISPATCH(Command, CMD_VARIANTS, Command_dispatch, GameState)
 
 #endif

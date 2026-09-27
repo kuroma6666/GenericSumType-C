@@ -33,7 +33,7 @@ std_ja() {
 }
 
 # ref（リポジトリルート相対）を、docs/ から辿れるリンクと短いラベルに変換する。
-#   docs/adr/0008-foo.md      -> [ADR-0008](adr/0008-foo.md)
+#   docs/adr/0008-generic-constructor-selection.md -> [ADR-0008](adr/0008-...)
 #   docs/constraints.md#c-01  -> [C-01](constraints.md#c-01)
 ref_link() {
     local ref="$1" path="${1%%#*}" anchor="${1#*#}" label
@@ -104,11 +104,12 @@ generate() {
 > **このファイルは `spec/emit.sh` が `spec/manifest.tsv` とケース断片から生成する。手で編集しないこと。**
 > 内容を変えたい場合は `spec/manifest.tsv` と `spec/cases/` を編集して `spec/emit.sh --write` を実行する。
 
-`generic_sum_type.h` のランタイム挙動は `switch` 一つ分しかなく、このライブラリが
-実際に約束しているのは「**どんなコードがコンパイルを通り、どんなコードが通らないか**」である。
-したがってこの一覧がこのライブラリの仕様の中核であり、その判定器はコンパイラそのものになる。
+このライブラリが約束しているのは、主に「**どんなコードがコンパイルを通り、どんなコードが通らないか**」である。
+この一覧がその仕様の中核であり、判定器はコンパイラそのものになる。実行時の約束のうち保証として固定したいもの
+（不正 tag での挙動など）は run-pass として同じ一覧に載せている。
 
-各項目は `spec/run.sh` が CI（gcc / clang × c99 / c11 / c17）で毎回実行して検証している。
+各項目は `spec/run.sh` が CI（gcc / clang × c99 / c11 / c17、`-O0` と `-O2` + サニタイザ）で毎回検証している。
+コンパイル失敗を期待するケースは、原因の箇所だけを直した対照（`-DSPEC_FIXED`）が通ることも確かめる。
 
 - **保証** — ライブラリが約束する挙動。破れたらバグとして扱う。
 - **既知の限界** — 約束しない（できない）ことを固定したもの。将来検出できるようになってもよいが、
@@ -139,11 +140,12 @@ DETAIL
 case "${1:-}" in
     --write) generate > "$OUT"; echo "生成しました: docs/GUARANTEES.md" ;;
     --check)
-        if diff -u "$OUT" <(generate) > /tmp/guarantees.diff 2>&1; then
+        diff_out=$(diff -u "$OUT" <(generate) 2>&1)
+        if [ -z "$diff_out" ]; then
             echo "OK  docs/GUARANTEES.md は spec/ と同期しています"
         else
             echo "NG  docs/GUARANTEES.md が spec/ と食い違っています。spec/emit.sh --write を実行してください"
-            cat /tmp/guarantees.diff
+            printf '%s\n' "$diff_out"
             exit 1
         fi
         ;;

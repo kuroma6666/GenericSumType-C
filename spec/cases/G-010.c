@@ -3,8 +3,8 @@
 typedef struct { int v; } IntBox;
 typedef struct { const char *v; } StrBox;
 #define V(X, NAME, EXTRA) X(NAME, EXTRA, i, IntBox) X(NAME, EXTRA, s, StrBox)
-DEFINE_SUM_TYPE(T, V)
-DEFINE_SUM_NEW_GENERIC(T, V)
+SUM_DEFINE_TYPE(T, V)
+SUM_DEFINE_NEW_GENERIC(T, V)
 int main(void) {
     T a = SUM_NEW(T, V, ((IntBox){ 1 }));
     T b = SUM_NEW(T, V, ((StrBox){ "x" }));

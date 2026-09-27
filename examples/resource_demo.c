@@ -11,16 +11,19 @@
  *   - LogRecord は text（char* を所有）/ number（int の POD）のいずれか。
  *   - LogRecord_destroy(): variant ごとに後始末（text は free、number は no-op）。
  *   - LogRecord_copy():    variant ごとに複製（text は strdup、number は値コピー）。
+ *   - LogRecord_try_copy(): 複製の失敗（確保失敗）を戻り値で返し、失敗時は複製先を変えない。
+ *   - destroy 後のレコードは空状態になり、同じレコードへの2回目の destroy は何もしない。
  *   - 破棄・複製とも網羅性検査付き（variant 追加時にハンドラ追加を強制）。
  *
  * 【実装方針】
- *   - DEFINE_SUM_DESTROY / DEFINE_SUM_COPY を使用。
+ *   - SUM_DEFINE_DESTROY / SUM_DEFINE_COPY / SUM_DEFINE_COPY_CHECKED を使用。
  *   - 資源を持たない number には SUM_DEFINE_NOOP_DESTROY / SUM_DEFINE_IDENTITY_COPY。
  *   - AddressSanitizer 付きでリーク・二重解放がないことを確認する。
  *
  * 仕様の詳細: examples/specs/log_record.md
  */
 #define _POSIX_C_SOURCE 200809L /* strdup は POSIX 拡張 */
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,9 +36,10 @@ typedef struct { int value; } LogMetric; /* POD */
     X(NAME, EXTRA, text,   LogText)      \
     X(NAME, EXTRA, number, LogMetric)
 
-DEFINE_SUM_TYPE(LogRecord, LOG_RECORD)
-DEFINE_SUM_DESTROY(LogRecord, LOG_RECORD, LogRecord_destroy)
-DEFINE_SUM_COPY(LogRecord, LOG_RECORD, LogRecord_copy)
+SUM_DEFINE_TYPE(LogRecord, LOG_RECORD)
+SUM_DEFINE_DESTROY(LogRecord, LOG_RECORD, LogRecord_destroy)
+SUM_DEFINE_COPY(LogRecord, LOG_RECORD, LogRecord_copy)
+SUM_DEFINE_COPY_CHECKED(LogRecord, LOG_RECORD, LogRecord_try_copy)
 
 static void destroy_text(LogText *t) {
     printf("  free(%p) \"%s\"\n", (void *)t->msg, t->msg);
@@ -51,6 +55,17 @@ static LogText copy_text(const LogText *t) {
 }
 SUM_DEFINE_IDENTITY_COPY(copy_number, LogMetric)
 
+/* 確保失敗を模擬するためのスイッチ（実機では strdup が NULL を返す状況） */
+static int g_simulate_oom = 0;
+
+static int try_copy_text(LogText *dst, const LogText *src) {
+    char *dup = g_simulate_oom ? NULL : strdup(src->msg);
+    if (dup == NULL) return ENOMEM;
+    dst->msg = dup;
+    return 0;
+}
+static int try_copy_number(LogMetric *dst, const LogMetric *src) { *dst = *src; return 0; }
+
 int main(void) {
     printf("--- text レコード: ディープコピー ---\n");
     LogRecord original = LogRecord_new_text((LogText){ .msg = strdup("link down") });
@@ -61,8 +76,20 @@ int main(void) {
     printf("original=%p copy=%p -> %s\n", (void *)o->msg, (void *)c->msg,
            o->msg != c->msg ? "別アドレス(ディープコピー成功)" : "同一(バグ)");
 
+    printf("--- try_copy: 確保失敗時は複製先を変えない ---\n");
+    LogRecord dst = LogRecord_new_number((LogMetric){ .value = 7 });
+    g_simulate_oom = 1;
+    int rc = LogRecord_try_copy(&dst, &original, try_copy_text, try_copy_number);
+    printf("rc=%d (ENOMEM=%d) dst は number のまま: %s\n", rc, ENOMEM,
+           LogRecord_get_number(&dst) != NULL ? "yes" : "no");
+    g_simulate_oom = 0;
+    rc = LogRecord_try_copy(&dst, &original, try_copy_text, try_copy_number);
+    printf("rc=%d dst=\"%s\"\n", rc, LogRecord_get_text(&dst)->msg);
+
     LogRecord_destroy(&original, destroy_text, destroy_number);
+    LogRecord_destroy(&original, destroy_text, destroy_number);   /* 空状態なので何もしない */
     LogRecord_destroy(&copy, destroy_text, destroy_number);
+    LogRecord_destroy(&dst, destroy_text, destroy_number);
 
     printf("--- number レコード: identity copy ---\n");
     LogRecord n = LogRecord_new_number((LogMetric){ .value = 42 });

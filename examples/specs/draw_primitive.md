@@ -11,9 +11,9 @@
 - 同一 SumType に対し用途の異なる match を2つ定義する。
 
 ## 実装対応
-- `DEFINE_SUM_TYPE(Shape, SHAPE_VARIANTS)`。
-- `DEFINE_SUM_MATCH(..., Shape_fill_cost, double)` と `DEFINE_SUM_MATCH(..., Shape_label, const char *)` の2本。
+- `SUM_DEFINE_TYPE(Shape, SHAPE_VARIANTS)`。
+- `SUM_DEFINE_MATCH(..., Shape_fill_cost, double)` と `SUM_DEFINE_MATCH(..., Shape_label, const char *)` の2本。
 
 ## 受け入れ基準
 - 各プリミティブの面積とラベルが得られ、合計が計算できる。
-- 各 variant を専用 struct にしているため、面積ハンドラと別ハンドラの取り違えも型で検出される（design_spec 3節）。
+- 各 variant を専用 struct にしているため、面積ハンドラと別ハンドラの取り違えも型で検出される（[C-01](../../docs/constraints.md#c-01)）。

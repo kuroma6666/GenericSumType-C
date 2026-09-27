@@ -12,10 +12,10 @@
  *   - unwrap_or でデフォルト、同型 and_then（OrderId -> Result）で段階適用。
  *
  * 【実装方針】
- *   - DEFINE_SUM_TYPE(tag=ok/err) + DEFINE_RESULT_HELPERS（is_ok/is_err）。
- *   - fold は DEFINE_SUM_MATCH_CONST、取り出しは const ゲッター。
+ *   - SUM_DEFINE_TYPE(tag=ok/err) + SUM_DEFINE_RESULT_HELPERS（is_ok/is_err）。
+ *   - fold は SUM_DEFINE_MATCH_CONST、取り出しは const ゲッター。
  *   - 型が変わる合成（map: Result<T,E>->Result<U,E> / map_err）は C では汎用化
- *     できない（design_spec 2.10節）。同型 and_then か目標型明示の手書きに限る。
+ *     できない（docs/constraints.md C-13）。同型 and_then か目標型明示の手書きに限る。
  *
  * 仕様の詳細: examples/specs/order_result.md
  */
@@ -31,15 +31,15 @@ enum { ERR_INSUFFICIENT_STOCK = 1, ERR_PAYMENT_FAILED = 2 };
     X(NAME, EXTRA, ok,  OrderId)     \
     X(NAME, EXTRA, err, OrderError)
 
-DEFINE_SUM_TYPE(OrderResult, ORDER_RESULT)
-DEFINE_RESULT_HELPERS(OrderResult)
-DEFINE_SUM_MATCH_CONST(OrderResult, ORDER_RESULT, OrderResult_fold, int)
+SUM_DEFINE_TYPE(OrderResult, ORDER_RESULT)
+SUM_DEFINE_RESULT_HELPERS(OrderResult)
+SUM_DEFINE_MATCH_CONST(OrderResult, ORDER_RESULT, OrderResult_fold, int)
 
 static int fold_ok (const OrderId *o)    { return o->order_id; }
 static int fold_err(const OrderError *e) { printf("  err(%d): %s\n", e->kind, e->reason); return -e->kind; }
 
 static OrderId OrderResult_unwrap_or(const OrderResult *r, OrderId dflt) {
-    return r->tag == OrderResult_ok ? r->as.ok : dflt;
+    return r->tag == OrderResult_TAG_ok ? r->as.ok : dflt;
 }
 
 /* 在庫確認（OrderId -> Result）。同型 and_then で段階適用できる例 */
@@ -49,7 +49,7 @@ static OrderResult check_stock(const OrderId *o) {
     return OrderResult_new_ok(*o);
 }
 static OrderResult OrderResult_and_then(const OrderResult *r, OrderResult (*f)(const OrderId *)) {
-    return r->tag == OrderResult_ok ? f(&r->as.ok) : *r;
+    return r->tag == OrderResult_TAG_ok ? f(&r->as.ok) : *r;
 }
 
 int main(void) {

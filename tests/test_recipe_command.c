@@ -8,6 +8,7 @@
  *             -o test_recipe_command tests/test_recipe_command.c
  * 実行:   ./test_recipe_command
  */
+#undef NDEBUG
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,7 +18,7 @@ static int tests_run = 0;
 #define RUN(test) do { printf("- %-55s ... ", #test); test(); tests_run++; printf("OK\n"); } while (0)
 
 static RecipeStore fresh_store(void) {
-    RecipeStore store = { .slots = { { 0 } }, .current = -1, .last_query_result = -1 };
+    RecipeStore store = { .slots = { { 0 } }, .current = -1 };
     return store;
 }
 
@@ -32,7 +33,8 @@ static void test_create_adds_slot(void) {
 
 static void test_create_rejects_out_of_range_number(void) {
     RecipeStore store = fresh_store();
-    on_create(&(CmdRecipeCreate){ .number = 999, .name = "X" }, &store);
+    RecipeReply r = on_create(&(CmdRecipeCreate){ .number = 999, .name = "X" }, &store);
+    assert(r.status == RECIPE_NG_OUT_OF_RANGE);
     /* 範囲外は無視されるだけで、他のスロットに影響しないことを確認する */
     for (int i = 0; i < RECIPE_SLOT_MAX; ++i) {
         assert(store.slots[i].used == 0);
@@ -48,7 +50,8 @@ static void test_select_switches_current(void) {
 
 static void test_select_rejects_unused_slot(void) {
     RecipeStore store = fresh_store();
-    on_select(&(CmdRecipeSelect){ .number = 5 }, &store); /* 未作成のスロット */
+    RecipeReply r = on_select(&(CmdRecipeSelect){ .number = 5 }, &store); /* 未作成のスロット */
+    assert(r.status == RECIPE_NG_NOT_FOUND);
     assert(store.current == -1); /* 変化しない */
 }
 
@@ -63,27 +66,29 @@ static void test_delete_rejects_current_slot(void) {
     RecipeStore store = fresh_store();
     on_create(&(CmdRecipeCreate){ .number = 1, .name = "A" }, &store);
     on_select(&(CmdRecipeSelect){ .number = 1 }, &store);
-    on_delete(&(CmdRecipeDelete){ .number = 1 }, &store); /* 選択中なのでNG */
+    RecipeReply r = on_delete(&(CmdRecipeDelete){ .number = 1 }, &store); /* 選択中なのでNG */
+    assert(r.status == RECIPE_NG_SELECTED);
     assert(store.slots[1].used == 1); /* 削除されていない */
     assert(store.current == 1);
 }
 
-static void test_query_writes_result_to_ctx(void) {
+static void test_query_returns_current_number(void) {
     RecipeStore store = fresh_store();
     on_create(&(CmdRecipeCreate){ .number = 4, .name = "Q" }, &store);
     on_select(&(CmdRecipeSelect){ .number = 4 }, &store);
-    on_query(&(CmdRecipeQuery){ .reserved = 0 }, &store);
-    assert(store.last_query_result == 4);
+    RecipeReply r = on_query(&(CmdRecipeQuery){ .reserved = 0 }, &store);
+    assert(r.status == RECIPE_OK && r.value == 4);
 }
 
-/* ============ 2. DEFINE_SUM_DISPATCH自体が正しいハンドラへ振り分けるか ============ */
+/* ============ 2. SUM_DEFINE_DISPATCH_RET が正しいハンドラへ振り分け、戻り値を返すか ============ */
 
 static void test_dispatch_routes_to_correct_handler(void) {
     RecipeStore store = fresh_store();
     RecipeCommand cmd = RecipeCommand_new_create((CmdRecipeCreate){ .number = 0, .name = "Z" });
 
-    RecipeCommand_dispatch(&cmd, &store, on_create, on_delete, on_select, on_query);
+    RecipeReply r = RecipeCommand_execute(&cmd, &store, on_create, on_delete, on_select, on_query);
 
+    assert(r.status == RECIPE_OK);
     assert(store.slots[0].used == 1);
     assert(strcmp(store.slots[0].name, "Z") == 0);
 }
@@ -105,12 +110,18 @@ static void test_full_command_sequence_matches_expected_final_state(void) {
     };
     size_t n = sizeof(queue) / sizeof(queue[0]);
 
+    RecipeStatus expected[] = {
+        RECIPE_OK, RECIPE_OK, RECIPE_OK, RECIPE_OK,
+        RECIPE_NG_SELECTED, RECIPE_OK, RECIPE_OK, RECIPE_OK,
+    };
+    RecipeReply last = { RECIPE_OK, 0 };
     for (size_t i = 0; i < n; ++i) {
-        RecipeCommand_dispatch(&queue[i], &store, on_create, on_delete, on_select, on_query);
+        last = RecipeCommand_execute(&queue[i], &store, on_create, on_delete, on_select, on_query);
+        assert(last.status == expected[i]);
     }
 
     assert(store.current == 2);
-    assert(store.last_query_result == 2);
+    assert(last.value == 2);          /* 最後の query の読み出し値 */
     assert(store.slots[1].used == 0); /* 最終的には削除済み */
     assert(store.slots[2].used == 1);
 }
@@ -123,7 +134,7 @@ int main(void) {
     RUN(test_select_rejects_unused_slot);
     RUN(test_delete_removes_slot);
     RUN(test_delete_rejects_current_slot);
-    RUN(test_query_writes_result_to_ctx);
+    RUN(test_query_returns_current_number);
     RUN(test_dispatch_routes_to_correct_handler);
     RUN(test_full_command_sequence_matches_expected_final_state);
     printf("%d件全て成功\n", tests_run);

@@ -1,7 +1,6 @@
 /* 不正 tag（マクロ経由以外で破壊された tag）でディスパッチしたとき、
  * void を返す DISPATCH / DESTROY は SUM_UNHANDLED_TAG を呼んで正常復帰する。
- * ハンドラは一つも呼ばれない。値を返す MATCH / MATCH_CONST / COPY は
- * フック呼び出し後 SUM_UNREACHABLE() に進むため、ここでは検証しない。 */
+ * ハンドラは一つも呼ばれない。値を返すディスパッチャは G-020。 */
 #include <stdio.h>
 static int sum_unhandled_fired = 0;
 #define SUM_UNHANDLED_TAG(self) do { (void)(self); sum_unhandled_fired++; } while (0)
@@ -9,10 +8,10 @@ static int sum_unhandled_fired = 0;
 typedef struct { int a; } PA;
 typedef struct { int b; } PB;
 #define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, b, PB)
-DEFINE_SUM_TYPE(T, V)
+SUM_DEFINE_TYPE(T, V)
 typedef struct { int calls; } Ctx;
-DEFINE_SUM_DISPATCH(T, V, T_dispatch, Ctx)
-DEFINE_SUM_DESTROY(T, V, T_destroy)
+SUM_DEFINE_DISPATCH(T, V, T_dispatch, Ctx)
+SUM_DEFINE_DESTROY(T, V, T_destroy)
 static void da(PA *p, Ctx *c) { (void)p; c->calls++; }
 static void db(PB *p, Ctx *c) { (void)p; c->calls++; }
 static void za(PA *p) { (void)p; }

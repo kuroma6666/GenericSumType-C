@@ -11,9 +11,9 @@
  *   - is_left/is_right で分岐。fold で「ヒットなら値、ミスなら別処理」に畳み込む。
  *
  * 【実装方針】
- *   - DEFINE_SUM_TYPE(tag=left/right) + DEFINE_EITHER_HELPERS（is_left/is_right）。
- *   - fold は DEFINE_SUM_MATCH_CONST の左右2ハンドラ、取り出しは const ゲッター。
- *   - L と R を別 struct にすることで左右ハンドラ取り違えを型で検出（design_spec 3節）。
+ *   - SUM_DEFINE_TYPE(tag=left/right) + SUM_DEFINE_EITHER_HELPERS（is_left/is_right）。
+ *   - fold は SUM_DEFINE_MATCH_CONST の左右2ハンドラ、取り出しは const ゲッター。
+ *   - L と R を別 struct にすることで左右ハンドラ取り違えを型で検出（docs/constraints.md C-01）。
  *
  * 仕様の詳細: examples/specs/cache_lookup.md
  */
@@ -27,9 +27,9 @@ typedef struct { int value; } Hit;   /* Right: キャッシュ済みの値 */
     X(NAME, EXTRA, left,  Miss)  \
     X(NAME, EXTRA, right, Hit)
 
-DEFINE_SUM_TYPE(Lookup, LOOKUP)
-DEFINE_EITHER_HELPERS(Lookup)
-DEFINE_SUM_MATCH_CONST(Lookup, LOOKUP, Lookup_value_or_fetch, int)
+SUM_DEFINE_TYPE(Lookup, LOOKUP)
+SUM_DEFINE_EITHER_HELPERS(Lookup)
+SUM_DEFINE_MATCH_CONST(Lookup, LOOKUP, Lookup_value_or_fetch, int)
 
 /* miss のときはキーから「フェッチした値」を得る想定（ここでは key*10 で代用） */
 static int on_miss(const Miss *m) { printf("  miss key=%d -> fetch\n", m->key); return m->key * 10; }

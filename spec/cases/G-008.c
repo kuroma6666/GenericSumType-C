@@ -4,9 +4,13 @@
 typedef struct { int v; } IntBox;
 typedef struct { const char *v; } StrBox;
 #define V(X, NAME, EXTRA) X(NAME, EXTRA, i, IntBox) X(NAME, EXTRA, s, StrBox)
-DEFINE_SUM_TYPE(T, V)
-DEFINE_SUM_NEW_GENERIC(T, V)
+SUM_DEFINE_TYPE(T, V)
+SUM_DEFINE_NEW_GENERIC(T, V)
 int main(void) {
-    T t = SUM_NEW(T, V, 42);   /* IntBox でも StrBox でもない生の int */
-    return t.tag;
+#ifndef SPEC_FIXED
+    T t = SUM_NEW(T, V, 42);             /* IntBox でも StrBox でもない生の int */
+#else
+    T t = SUM_NEW(T, V, ((IntBox){ 42 }));
+#endif
+    return t.tag == T_TAG_i ? 0 : 1;
 }

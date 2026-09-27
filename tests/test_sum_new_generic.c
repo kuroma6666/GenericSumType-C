@@ -1,17 +1,17 @@
 /*
- * DEFINE_SUM_NEW_GENERIC / SUM_NEW（C11以降限定のオプトイン機能）の単体テスト。
+ * SUM_DEFINE_NEW_GENERIC / SUM_NEW（C11以降限定のオプトイン機能）の単体テスト。
  * 他のtest_*.cと同様、外部フレームワークを使わずassert()のみで構成している。
  *
- * C99ビルドではDEFINE_SUM_NEW_GENERIC / SUM_NEW自体が存在しないため
+ * C99ビルドではSUM_DEFINE_NEW_GENERIC / SUM_NEW自体が存在しないため
  * （generic_sum_type.h内で__STDC_VERSION__によりガードされている）、
  * このファイルは丸ごと__STDC_VERSION__で分岐し、C99実行時は
  * テストをスキップした旨を表示するだけにしている。ci.ymlはtests/test_*.cを
  * c99/c11/c17全マトリクスで無条件にビルド・実行するため、この分岐が
- * ないとc99ジョブが壊れる（design_spec.md 4.13節で検証済みの制約）。
+ * ないとc99ジョブが壊れる（docs/adr/0008-generic-constructor-selection.md）。
  *
  * 「渡し忘れ」「型取り違え」に相当する検証（コンパイルが失敗するべきケース）は
- * ランタイムのassertテストには書けないため、test_compile_guarantees.shの方に
- * ケースを追加している。
+ * ランタイムのassertテストには書けないため、spec/ にケースを置いている
+ * （G-008〜G-010, G-017）。
  *
  * ビルド:  gcc -std=c11 -pedantic -Wall -Wextra -Werror -o test_sum_new_generic test_sum_new_generic.c
  * 実行:    ./test_sum_new_generic
@@ -21,6 +21,7 @@
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 
+#undef NDEBUG
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
@@ -38,8 +39,8 @@ typedef struct { double v; } FloatBox;
     X(NAME, EXTRA, s, StrBox)         \
     X(NAME, EXTRA, f, FloatBox)
 
-DEFINE_SUM_TYPE(IntOrStrOrFloat, IOSF_VARIANTS)
-DEFINE_SUM_NEW_GENERIC(IntOrStrOrFloat, IOSF_VARIANTS)
+SUM_DEFINE_TYPE(IntOrStrOrFloat, IOSF_VARIANTS)
+SUM_DEFINE_NEW_GENERIC(IntOrStrOrFloat, IOSF_VARIANTS)
 
 /* ============ 1. 型ごとに正しいコンストラクタが自動選択されるか ============ */
 static void test_selects_int_ctor(void) {
@@ -67,7 +68,7 @@ static void test_selects_float_ctor(void) {
 }
 
 /* ============ 2. SUM_NEWで作った値が通常のマクロ生成関数と等価に扱えるか ============ */
-DEFINE_SUM_MATCH(IntOrStrOrFloat, IOSF_VARIANTS, IntOrStrOrFloat_to_tagchar, char)
+SUM_DEFINE_MATCH(IntOrStrOrFloat, IOSF_VARIANTS, IntOrStrOrFloat_to_tagchar, char)
 static char tag_i(IntBox *b)   { (void)b; return 'i'; }
 static char tag_s(StrBox *b)   { (void)b; return 's'; }
 static char tag_f(FloatBox *b) { (void)b; return 'f'; }
@@ -78,7 +79,7 @@ static void test_sum_new_value_works_with_match(void) {
 }
 
 int main(void) {
-    printf("DEFINE_SUM_NEW_GENERIC / SUM_NEW 単体テスト\n");
+    printf("SUM_DEFINE_NEW_GENERIC / SUM_NEW 単体テスト\n");
     RUN(test_selects_int_ctor);
     RUN(test_selects_str_ctor);
     RUN(test_selects_float_ctor);
@@ -90,7 +91,7 @@ int main(void) {
 #else /* __STDC_VERSION__ < 201112L */
 
 int main(void) {
-    printf("DEFINE_SUM_NEW_GENERIC / SUM_NEW 単体テスト\n");
+    printf("SUM_DEFINE_NEW_GENERIC / SUM_NEW 単体テスト\n");
     printf("C11未満のためSUM_NEWは利用不可、このビルド(C99)ではテストをスキップします\n");
     return 0;
 }

@@ -6,12 +6,13 @@
  *
  * ハンドラは internal_command.h 側で static inline として定義されているため、
  * このテストファイルからも demo と全く同じ実装を直接呼び出せる
- * (design_spec.md 4.10節: 複数TUでの共有パターンの応用)。
+ * (docs/constraints.md C-11: 複数TUでの共有パターンの応用)。
  *
  * ビルド: gcc -std=c11 -pedantic -Wall -Wextra -Werror -Iinclude \
  *             -o test_internal_command tests/test_internal_command.c
  * 実行:   ./test_internal_command
  */
+#undef NDEBUG
 #include <assert.h>
 #include <stdio.h>
 #include "../examples/internal_command.h"
@@ -84,7 +85,7 @@ static void test_guide_stop_updates_state(void) {
     assert(st.guide_on == 0);
 }
 
-/* ============ 2. DEFINE_SUM_DISPATCH自体が正しいハンドラへ振り分けるか ============ */
+/* ============ 2. SUM_DEFINE_DISPATCH自体が正しいハンドラへ振り分けるか ============ */
 
 static void test_dispatch_routes_to_correct_handler(void) {
     LaserDeviceState st = fresh_state();

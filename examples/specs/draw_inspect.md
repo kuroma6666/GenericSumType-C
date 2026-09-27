@@ -10,9 +10,9 @@
 - fill_cost 合計を求め、個々のプリミティブは const のまま検査する。
 
 ## 実装対応
-- `DEFINE_SUM_MATCH_CONST`（self=const NAME*, ハンドラ=Type const*）。可変版は const NAME* から呼べない（discards const）ため read-only 契約に不適。
+- `SUM_DEFINE_MATCH_CONST`（self=const NAME*, ハンドラ=Type const*）。可変版は const NAME* から呼べない（discards const）ため read-only 契約に不適。
 - 取り出しは const ゲッター `NAME_get_<tag>_const`（Type const* を返す）。
 
 ## 受け入れ基準
 - `const Shape*` を保持したまま面積集計・種別判定ができる（キャスト不要）。
-- ハンドラが payload を書き換えようとするとコンパイルエラー（design_spec 4.14節）。
+- ハンドラが payload を書き換えようとするとコンパイルエラー（[G-011](../../docs/GUARANTEES.md#g-011)）。

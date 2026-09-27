@@ -14,9 +14,9 @@
  *   - variant を追加したら print のハンドラ追加を強制する（渡し忘れ=コンパイルエラー）。
  *
  * 【実装方針】
- *   - DEFINE_SUM_TYPE で ConfigValue と new_/get_ を生成。
- *   - DEFINE_SUM_MATCH で print 用の網羅ディスパッチを生成（ハンドラは payload のみ）。
- *   - 網羅性は関数プロトタイプの引数個数チェックで強制される（design_spec 3節）。
+ *   - SUM_DEFINE_TYPE で ConfigValue と new_/get_ を生成。
+ *   - SUM_DEFINE_MATCH で print 用の網羅ディスパッチを生成（ハンドラは payload のみ）。
+ *   - 網羅性は関数プロトタイプの引数個数チェックで強制される（docs/adr/0001-x-macro-code-generation.md）。
  *
  * 仕様の詳細: examples/specs/config_value.md
  */
@@ -29,8 +29,8 @@
     X(NAME, EXTRA, s, const char*)   \
     X(NAME, EXTRA, f, double)
 
-DEFINE_SUM_TYPE(ConfigValue, CONFIG_VALUE)
-DEFINE_SUM_MATCH(ConfigValue, CONFIG_VALUE, ConfigValue_print, int)
+SUM_DEFINE_TYPE(ConfigValue, CONFIG_VALUE)
+SUM_DEFINE_MATCH(ConfigValue, CONFIG_VALUE, ConfigValue_print, int)
 
 static int print_i(int32_t *v)     { printf("  int    = %d\n", *v); return 0; }
 static int print_s(const char **v) { printf("  string = %s\n", *v); return 0; }

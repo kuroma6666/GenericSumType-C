@@ -13,6 +13,7 @@
  *             -o test_protocol_frame tests/test_protocol_frame.c
  * 実行:   ./test_protocol_frame
  */
+#undef NDEBUG
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

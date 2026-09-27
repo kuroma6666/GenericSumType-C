@@ -3,7 +3,7 @@
 typedef struct { int code; } Err;
 typedef struct { int val; }  Ok;
 #define V(X, NAME, EXTRA) X(NAME, EXTRA, left, Err) X(NAME, EXTRA, right, Ok)
-DEFINE_SUM_TYPE(Result, V)
-DEFINE_EITHER_HELPERS(Result)
+SUM_DEFINE_TYPE(Result, V)
+SUM_DEFINE_EITHER_HELPERS(Result)
 static int use(const Result *r) { return Result_is_left(r) ? 0 : 1; }
 int main(void) { Result r = Result_new_right((Ok){ .val = 1 }); return use(&r); }

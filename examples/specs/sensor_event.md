@@ -11,7 +11,7 @@
 - C11 の `_Generic` を使うため C11 以降限定。C99 ではスキップ（ファイル自身を `__STDC_VERSION__` で自己ガード）。
 
 ## 実装対応
-- `DEFINE_SUM_NEW_GENERIC` + `SUM_NEW`、推奨イディオム `#define SensorEvent_new(x) SUM_NEW(...)`。
+- `SUM_DEFINE_NEW_GENERIC` + `SUM_NEW`、推奨イディオム `#define SensorEvent_new(x) SUM_NEW(...)`。
 
 ## 受け入れ基準
 - 値の型に応じて正しい variant が選択される（tag が一致）。

@@ -13,14 +13,14 @@
  *     （ファイル自身を __STDC_VERSION__ で自己ガード）。
  *
  * 【実装方針】
- *   - DEFINE_SUM_NEW_GENERIC で補助を生成し、SUM_NEW で構築。
+ *   - SUM_DEFINE_NEW_GENERIC で補助を生成し、SUM_NEW で構築。
  *     利用側の推奨イディオム #define SensorEvent_new(x) SUM_NEW(...) も示す。
  *   - 注意（プリプロセッサの制約）: 複数フィールドの複合リテラルを SUM_NEW や
  *     SensorEvent_new へ「その場で」渡すと、波括弧内のカンマがマクロ引数区切りと
  *     誤認されて壊れる（括弧はカンマを守るが波括弧は守らない）。実務では payload を
  *     いったん名前付き変数に代入して渡すのが安全（本デモもそうしている）。
  *   - 2つ以上の variant が同一 payload 型を共有すると _Generic 連想が重複し
- *     コンパイルエラーになる（design_spec 4.13節）。専用 struct でラップして回避。
+ *     コンパイルエラーになる（docs/adr/0008-generic-constructor-selection.md）。専用 struct でラップして回避。
  *
  * 仕様の詳細: examples/specs/sensor_event.md
  */
@@ -38,8 +38,8 @@ typedef struct { unsigned count; }  PulseCount;
     X(NAME, EXTRA, sw,    SwitchEvent)   \
     X(NAME, EXTRA, pulse, PulseCount)
 
-DEFINE_SUM_TYPE(SensorEvent, SENSOR_EVENT)
-DEFINE_SUM_NEW_GENERIC(SensorEvent, SENSOR_EVENT)
+SUM_DEFINE_TYPE(SensorEvent, SENSOR_EVENT)
+SUM_DEFINE_NEW_GENERIC(SensorEvent, SENSOR_EVENT)
 #define SensorEvent_new(x) SUM_NEW(SensorEvent, SENSOR_EVENT, (x))
 
 int main(void) {
@@ -55,11 +55,11 @@ int main(void) {
     printf("e1 temp:  celsius=%.1f\n", SensorEvent_get_temp(&e1)->celsius);
     printf("e2 sw:    gpio=%d on=%d\n", SensorEvent_get_sw(&e2)->gpio, SensorEvent_get_sw(&e2)->on);
     printf("e3 pulse: count=%u\n", SensorEvent_get_pulse(&e3)->count);
-    return (e1.tag == SensorEvent_temp && e2.tag == SensorEvent_sw && e3.tag == SensorEvent_pulse) ? 0 : 1;
+    return (e1.tag == SensorEvent_TAG_temp && e2.tag == SensorEvent_TAG_sw && e3.tag == SensorEvent_TAG_pulse) ? 0 : 1;
 }
 #else
 int main(void) {
-    printf("skip: DEFINE_SUM_NEW_GENERIC/SUM_NEW は C11 以降限定（_Generic 不可のため）\n");
+    printf("skip: SUM_DEFINE_NEW_GENERIC/SUM_NEW は C11 以降限定（_Generic 不可のため）\n");
     return 0;
 }
 #endif

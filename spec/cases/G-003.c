@@ -3,8 +3,8 @@
 #include "generic_sum_type.h"
 #include <stdint.h>
 #define V(X, NAME, EXTRA) X(NAME, EXTRA, score, int32_t) X(NAME, EXTRA, penalty, int32_t)
-DEFINE_SUM_TYPE(Cmd, V)
-DEFINE_SUM_DISPATCH(Cmd, V, Cmd_dispatch, int)
+SUM_DEFINE_TYPE(Cmd, V)
+SUM_DEFINE_DISPATCH(Cmd, V, Cmd_dispatch, int)
 static void on_score(int32_t *v, int *c) { (void)v; (void)c; }
 static void on_penalty(int32_t *v, int *c) { (void)v; (void)c; }
 int main(void) {

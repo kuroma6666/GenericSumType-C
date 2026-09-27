@@ -11,9 +11,9 @@
 - variant を追加したら、`print` のハンドラ追加を強制する（渡し忘れはコンパイルエラー）。
 
 ## 実装対応（generic_sum_type.h の使い方）
-- `DEFINE_SUM_TYPE(ConfigValue, CONFIG_VALUE)` … 型・コンストラクタ・ゲッター生成。
-- `DEFINE_SUM_MATCH(..., ConfigValue_print, int)` … 網羅ディスパッチ。ハンドラは payload のみ受け取る。
+- `SUM_DEFINE_TYPE(ConfigValue, CONFIG_VALUE)` … 型・コンストラクタ・ゲッター生成。
+- `SUM_DEFINE_MATCH(..., ConfigValue_print, int)` … 網羅ディスパッチ。ハンドラは payload のみ受け取る。
 
 ## 受け入れ基準（このデモで確認できること）
 - 3種の値を1つの型で保持し、型ごとに出力できる。
-- `print_s` を渡し忘れる／順序を入れ替えると、`gcc -Werror` でコンパイルが落ちる（design_spec 3節）。
+- `print_s` を渡し忘れる／順序を入れ替えると、`gcc -Werror` でコンパイルが落ちる（[G-001](../../docs/GUARANTEES.md#g-001), [G-002](../../docs/GUARANTEES.md#g-002)）。

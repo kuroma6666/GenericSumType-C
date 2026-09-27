@@ -26,8 +26,11 @@
 #include <stdio.h>
 #include "recipe_command.h"
 
+SUM_DEFINE_PREDICATE(RecipeCommand, query)
+
 int main(void) {
-    RecipeStore store = { .slots = { { 0 } }, .current = -1, .last_query_result = -1 };
+    RecipeStore store = { .slots = { { 0 } }, .current = -1 };
+    int last_query = -1;
 
     /* 通信層でデコードされた後の「ROM/RAMパラメータ操作コマンド列」を模したキュー */
     RecipeCommand queue[] = {
@@ -42,10 +45,17 @@ int main(void) {
     };
     size_t queue_len = sizeof(queue) / sizeof(queue[0]);
 
+    int ng_count = 0;
     for (size_t i = 0; i < queue_len; ++i) {
-        RecipeCommand_dispatch(&queue[i], &store, on_create, on_delete, on_select, on_query);
+        RecipeReply r = RecipeCommand_execute(&queue[i], &store,
+                                              on_create, on_delete, on_select, on_query);
+        if (r.status != RECIPE_OK) {
+            ng_count++;
+        } else if (RecipeCommand_is_query(&queue[i])) {
+            last_query = r.value;
+        }
     }
 
-    printf("final: current=%d last_query_result=%d\n", store.current, store.last_query_result);
+    printf("final: current=%d last_query=%d ng=%d\n", store.current, last_query, ng_count);
     return 0;
 }

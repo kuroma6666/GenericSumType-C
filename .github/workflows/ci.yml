@@ -6,95 +6,29 @@ on:
   pull_request:
     branches: [main]
 
+# 検査の中身は scripts/check.sh にある（手元でも同じコマンドで再現できるようにするため）。
+# このファイルはマトリクスの定義だけを持つ。
 jobs:
-  build-and-test:
-    name: build-and-test (${{ matrix.cc }}, -std=${{ matrix.std }})
+  check:
+    name: ${{ matrix.mode }} (${{ matrix.cc }}, -std=${{ matrix.std }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # 対応コンパイラはGCC/Clangのみ（MSVCは意図的にサポート対象外。
-        # docs/adr/0007-msvc-out-of-scope.md）。
+        # GCC / Clang のみ（MSVC は対象外。docs/adr/0007-msvc-out-of-scope.md）
         cc: [gcc, clang]
-        # C99/C11/C17すべてで実際にビルドが通ることをCIで検証する
-        # （ドキュメントに「C99以降対応」と書くだけでは検証にならない、という教訓から
-        #   3バージョンともマトリクスに含めている）。
         std: [c99, c11, c17]
-
-    env:
-      CC: ${{ matrix.cc }}
-      CFLAGS: -std=${{ matrix.std }} -pedantic -Wall -Wextra -Werror -Iinclude
+        # default : examples / tests（ASan）/ spec
+        # sanitize: -O2 + ASan + UBSan。最適化時の挙動（不正 tag の扱い等）を確かめる
+        # strict  : 利用側が付けがちな厳格警告（-Wswitch-default, -Wconversion 等）でも警告が出ないこと
+        mode: [default, sanitize, strict]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Show compiler version
-        run: $CC --version
-
-      - name: Build all examples
-        run: |
-          set -e
-          for f in examples/*.c; do
-            echo "== $f =="
-            if [ "$(basename "$f")" = "threadsafe_dispatch_demo.c" ]; then
-              $CC $CFLAGS -pthread -o "/tmp/$(basename "$f" .c)" "$f"
-            else
-              $CC $CFLAGS -o "/tmp/$(basename "$f" .c)" "$f"
-            fi
-          done
-
-      - name: Run example binaries (デモの実行が落ちないことも確認する)
-        run: |
-          set -e
-          /tmp/demo
-          /tmp/shape_demo
-          /tmp/command_demo
-          /tmp/resource_demo
-          /tmp/threadsafe_dispatch_demo
-          /tmp/internal_command_demo
-          /tmp/protocol_frame_demo
-          /tmp/recipe_param_demo
-          /tmp/generic_ctor_demo
-          /tmp/const_view_demo
-          /tmp/either_demo
-          /tmp/result_demo
-
-      - name: Build and run unit tests (AddressSanitizer付き)
-        # tests/test_*.c を全て対象にする(ライブラリ本体のtest_generic_sum_type.cに加え、
-        # examples/内部処理系・通信処理系・ROM/RAMパラメータ取得系の3サンプル、
-        # DEFINE_SUM_NEW_GENERIC(C11以降限定)に対するホワイトボックステストも
-        # 同じ扱いでビルド・実行する。C99マトリクスではtest_sum_new_generic.cが
-        # 自己ガードで中身をスキップする形になる)。
-        run: |
-          set -e
-          for tf in tests/test_*.c; do
-            tbase=$(basename "$tf" .c)
-            echo "== $tf =="
-            $CC $CFLAGS -fsanitize=address -g -o "/tmp/$tbase" "$tf"
-            "/tmp/$tbase"
-          done
-
-      - name: Verify compile-time guarantees (spec/)
-        # このライブラリのランタイム挙動は switch 一つ分しかなく、実際に約束しているのは
-        # 「どんなコードがコンパイルを通り、どんなコードが通らないか」である。
-        # spec/manifest.tsv がその仕様の実体で、判定器はコンパイラそのもの。
-        # std 列によって、そのC標準で意味を持つケースだけが選ばれる
-        # (_Generic に依存するケースは c99 で自動スキップされる)。
-        run: |
-          chmod +x spec/run.sh
-          CC=$CC STD=${{ matrix.std }} spec/run.sh
-
-      - name: Check docs/GUARANTEES.md is in sync with spec/
-        # GUARANTEES.md は spec/ からの生成物。手で編集された場合や、
-        # manifest.tsv だけ直して再生成し忘れた場合にここで落ちる。
-        # 「ドキュメントに書いた保証」と「実際に検査されている保証」の乖離を
-        # 構造的に防ぐための検査であり、以前この2つは実際に食い違っていた。
-        run: |
-          chmod +x spec/emit.sh
-          spec/emit.sh --check
-
-      - name: Check Markdown cross-references
-        # 制約と保証は C-01 / G-001 という安定IDで相互参照する規約にしている。
-        # その規約はリンクが実際に解決することを確かめて初めて意味を持つ。
-        # ID の振り替えやファイル移動での直し忘れをここで落とす。
-        run: python3 spec/check_links.py
+      - name: Run checks
+        env:
+          CC: ${{ matrix.cc }}
+          STD: ${{ matrix.std }}
+          MODE: ${{ matrix.mode }}
+        run: bash scripts/check.sh

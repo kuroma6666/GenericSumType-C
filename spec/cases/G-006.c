@@ -3,7 +3,7 @@
 typedef struct { int a; } PA;
 typedef void (*Callback)(int, int);
 #define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, cb, Callback)
-DEFINE_SUM_TYPE(T, V)
+SUM_DEFINE_TYPE(T, V)
 static void my_cb(int x, int y) { (void)x; (void)y; }
 int main(void) {
     T t = T_new_cb(my_cb);

@@ -1,6 +1,6 @@
 # ADR-0010: 不正 tag の検知をフックとして提供する
 
-- **状態:** 採用
+- **状態:** 置き換え済み（[ADR-0011](./0011-default-label-and-trap.md) による）
 - **関連:** [G-019](../GUARANTEES.md#g-019), [C-05](../constraints.md#c-05)
 
 ## 文脈

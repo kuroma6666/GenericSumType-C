@@ -2,7 +2,8 @@
 #
 # cbmc_verify_destroy.sh
 #
-# cbmc_destroy_harness.c の3ケース(safe_case / leaked_case / double_free_case)を
+# cbmc_destroy_harness.c の4ケース(safe_case / leaked_case / double_free_case /
+# double_destroy_case)を
 # CBMCで検証し、期待通りの結果になっているかをまとめて確認するスクリプト。
 # CIには組み込んでおらず、CBMCが使える環境での任意の追加検証という位置づけ。
 #
@@ -18,6 +19,7 @@
 #   safe_case        -> VERIFICATION SUCCESSFUL (exit code 0)
 #   leaked_case      -> VERIFICATION FAILED     (メモリリーク検出、exit code != 0)
 #   double_free_case -> VERIFICATION FAILED     (二重解放検出、exit code != 0)
+#   double_destroy_case -> VERIFICATION SUCCESSFUL (exit code 0)
 #
 # 注意: CBMCのexit codeは「0=成功」「0以外=検証失敗 or ツールエラー」の大まかな区別しかできない。
 # 0以外だった場合、実際にリーク/二重解放を検出したのか、単なる構文エラー等かは
@@ -65,6 +67,7 @@ run_case() {
 run_case safe_case        success
 run_case leaked_case      fail
 run_case double_free_case fail
+run_case double_destroy_case success
 
 echo "=================================================="
 if [ "$FAILCOUNT" -eq 0 ]; then

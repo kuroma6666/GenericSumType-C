@@ -10,9 +10,9 @@
 - `is_left`/`is_right` で分岐、fold で「ヒットなら値、ミスならフェッチ」に畳み込む。
 
 ## 実装対応
-- `DEFINE_SUM_TYPE(tag=left/right)` + `DEFINE_EITHER_HELPERS`（is_left/is_right）。
-- fold は `DEFINE_SUM_MATCH_CONST` の左右2ハンドラ、取り出しは const ゲッター。
+- `SUM_DEFINE_TYPE(tag=left/right)` + `SUM_DEFINE_EITHER_HELPERS`（is_left/is_right）。
+- fold は `SUM_DEFINE_MATCH_CONST` の左右2ハンドラ、取り出しは const ゲッター。
 
 ## 受け入れ基準
 - 参照結果を Hit/Miss で分岐し、fold で値へ解決できる。
-- L と R を別 struct にしているため、左右ハンドラの取り違えが型で検出される（design_spec 3節）。
+- L と R を別 struct にしているため、左右ハンドラの取り違えが型で検出される（[C-01](../../docs/constraints.md#c-01)）。

@@ -3,7 +3,11 @@
 #include "generic_sum_type.h"
 typedef struct { int a; } PA;
 typedef struct { int b; } PB;
+#ifndef SPEC_FIXED
 #define V(X, NAME, EXTRA) X(NAME, EXTRA, foo, PA) X(NAME, EXTRA, bar, PB)
-DEFINE_SUM_TYPE(T, V)
-DEFINE_EITHER_HELPERS(T)   /* T_left / T_right が無い */
+#else
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, left, PA) X(NAME, EXTRA, right, PB)
+#endif
+SUM_DEFINE_TYPE(T, V)
+SUM_DEFINE_EITHER_HELPERS(T)   /* T_TAG_left / T_TAG_right が無い */
 int main(void) { return 0; }

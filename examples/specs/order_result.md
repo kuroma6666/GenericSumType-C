@@ -11,11 +11,11 @@
 - `unwrap_or` でデフォルト、同型 `and_then`（OrderId -> Result）で段階適用。
 
 ## 実装対応
-- `DEFINE_SUM_TYPE(tag=ok/err)` + `DEFINE_RESULT_HELPERS`（is_ok/is_err）。
-- fold は `DEFINE_SUM_MATCH_CONST`、取り出しは const ゲッター。
+- `SUM_DEFINE_TYPE(tag=ok/err)` + `SUM_DEFINE_RESULT_HELPERS`（is_ok/is_err）。
+- fold は `SUM_DEFINE_MATCH_CONST`、取り出しは const ゲッター。
 
 ## 受け入れ基準
 - 成功/失敗を値で分岐でき、fold・unwrap_or・同型 and_then が期待どおり動く。
 
 ## 既知の限界（ROP）
-型が変わる関数合成（`map: Result<T,E>->Result<U,E>` / `map_err`）は C では汎用化できない（design_spec 2.10節）。書けるのは同型変換（`T->Result<T,E>`）か、目標型を明示した手書き合成のいずれか。
+型が変わる関数合成（`map: Result<T,E>->Result<U,E>` / `map_err`）は C では汎用化できない（[C-13](../../docs/constraints.md#c-13)）。書けるのは同型変換（`T->Result<T,E>`）か、目標型を明示した手書き合成のいずれか。
