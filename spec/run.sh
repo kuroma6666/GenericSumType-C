@@ -10,6 +10,7 @@
 #   CC=clang STD=c17 ./run.sh   コンパイラ / C標準を切り替える
 #   EXTRA_CFLAGS=-O2 ./run.sh   追加フラグ（最適化・サニタイザ等）
 #   COMPILE_ONLY=1 ./run.sh     run-pass もコンパイルだけ行う（実行できないクロスコンパイラ用）
+#   RUNNER="qemu-arm -cpu cortex-m4" ./run.sh   run-pass のバイナリをエミュレータ経由で実行する
 #   ./run.sh G-009 G-017        指定した id だけ実行する
 #
 # compile-fail のケースは対照コンパイルを必須とする。ケース断片は誤り箇所を
@@ -111,7 +112,8 @@ $(sed 's/^/  /' "$TMP/fix.log" | head -20)"; return
         if ! "$CC" "${CFLAGS[@]}" "${inc[@]}" "${srcs[@]}" -o "$build/a.out" 2>"$TMP/err.log"; then
             report NG "$id" "$title" "$(sed 's/^/  /' "$TMP/err.log" | head -20)"; return
         fi
-        if out=$("$build/a.out" 2>&1); then
+        # shellcheck disable=SC2086
+        if out=$(${RUNNER:-} "$build/a.out" 2>&1); then
             report OK "$id" "$title"
         else
             report NG "$id" "$title" "  ビルドは通ったが実行が失敗した${out:+

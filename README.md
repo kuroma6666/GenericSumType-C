@@ -96,11 +96,12 @@ scripts/check.sh                          # gcc / c11: examples, tests(ASan), sp
 CC=clang STD=c99 scripts/check.sh         # コンパイラ・C 標準を切り替える
 MODE=sanitize scripts/check.sh            # -O2 + ASan + UBSan
 MODE=strict scripts/check.sh              # 厳格警告（-Wswitch-default, -Wconversion 等）。gcc では -fanalyzer も
-MODE=cross CC=arm-none-eabi-gcc CROSS_CFLAGS="-mcpu=cortex-m4 -mthumb" scripts/check.sh   # クロスコンパイルのみ
+MODE=cross CC=arm-none-eabi-gcc CROSS_CFLAGS="-mcpu=cortex-m4 -mthumb --specs=rdimon.specs" \
+  CROSS_RUN="qemu-arm -cpu cortex-m4" scripts/check.sh                              # Cortex-M4 でビルドして qemu で実行
 spec/run.sh G-020 G-021                   # 指定した保証だけ検査する
 ```
 
-CI は gcc / clang × c99 / c11 / c17 × default / sanitize / strict の 18 通りと、arm-none-eabi-gcc（Cortex-M4）× 3 標準のクロスコンパイルで [`scripts/check.sh`](./scripts/check.sh) を実行する。
+CI は gcc / clang × c99 / c11 / c17 × default / sanitize / strict の 18 通りと、arm-none-eabi-gcc（Cortex-M4）× 3 標準のクロスビルド + qemu-arm 実行で [`scripts/check.sh`](./scripts/check.sh) を実行する。
 
 このライブラリが約束しているのは、主に「**どんなコードがコンパイルを通り、どんなコードが通らないか**」である。
 その仕様は [`spec/manifest.tsv`](./spec/manifest.tsv) で、判定器はコンパイラそのものである。

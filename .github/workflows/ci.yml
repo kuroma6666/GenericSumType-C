@@ -33,8 +33,8 @@ jobs:
           MODE: ${{ matrix.mode }}
         run: bash scripts/check.sh
 
-  # 組込み向けクロスコンパイラ（Cortex-M4, newlib）でのコンパイルのみ。実行はしない。
-  # -fshort-enums（AAPCS 既定）や int32_t = long といった、ホストと異なる前提での警告・エラーを拾う。
+  # 組込み向けクロスコンパイラ（Cortex-M4, newlib）でビルドし、qemu-arm（セミホスティング）で実行する。
+  # -fshort-enums（AAPCS 既定）や int32_t = long といった、ホストと異なる前提での警告・誤動作を拾う。
   cross-arm:
     name: cross (arm-none-eabi-gcc, -std=${{ matrix.std }})
     runs-on: ubuntu-latest
@@ -44,12 +44,13 @@ jobs:
         std: [c99, c11, c17]
     steps:
       - uses: actions/checkout@v4
-      - name: Install arm-none-eabi-gcc
-        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+      - name: Install arm-none-eabi-gcc and qemu-user
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi qemu-user
       - name: Run checks
         env:
           CC: arm-none-eabi-gcc
-          CROSS_CFLAGS: -mcpu=cortex-m4 -mthumb
+          CROSS_CFLAGS: -mcpu=cortex-m4 -mthumb --specs=rdimon.specs
+          CROSS_RUN: qemu-arm -cpu cortex-m4
           STD: ${{ matrix.std }}
           MODE: cross
         run: bash scripts/check.sh

@@ -49,7 +49,7 @@
 - 保証を G-020〜G-032 の13件追加した（計32件）。
 - `scripts/check.sh` を追加し、CI はそれを呼ぶだけにした。デモの追加フラグは各ファイルの `ci-flags:` 行で宣言する（手書きの実行リストを廃止）。
 - CI に `sanitize`（`-O2` + ASan + UBSan）と `strict`（厳格警告。gcc では `-fanalyzer` も `-Werror` で実行）のモードを追加した（計18ジョブ）。
-- CI に arm-none-eabi-gcc（Cortex-M4、newlib）でのクロスコンパイルジョブを追加した。`examples/demo.c` の `printf("%d", int32_t)` が newlib（`int32_t` = `long`）で `-Wformat` エラーになる問題を見つけ、`PRId32` に直した。
+- CI に arm-none-eabi-gcc（Cortex-M4、newlib）でビルドし qemu-arm で examples / tests / spec の run-pass を実行するジョブを追加した。`examples/demo.c` の `printf("%d", int32_t)` が newlib（`int32_t` = `long`）で `-Wformat` エラーになる問題を見つけ、`PRId32` に直した。
 - `spec/check_links.py` は、ソースコード中の文書パス、ADR 番号、`C-xx` / `G-xxx` の ID、旧節番号参照も検査するようになった。
 
 ### v1 からの移行手順

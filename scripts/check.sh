@@ -6,7 +6,9 @@
 #   CC=clang STD=c99 scripts/check.sh      コンパイラ・C標準を切り替える
 #   MODE=sanitize scripts/check.sh         -O2 + ASan + UBSan で examples / tests / spec を実行
 #   MODE=cross CC=arm-none-eabi-gcc CROSS_CFLAGS="-mcpu=cortex-m4 -mthumb" scripts/check.sh
-#                                          組込み向けクロスコンパイラでのコンパイルのみ（実行しない）
+#                                          組込み向けクロスコンパイラでのコンパイルのみ
+#   ... CROSS_CFLAGS="... --specs=rdimon.specs" CROSS_RUN="qemu-arm -cpu cortex-m4" scripts/check.sh
+#                                          さらにエミュレータ上で examples / tests / spec の run-pass を実行する
 #   MODE=strict   scripts/check.sh         利用側が付けがちな厳格警告を足して examples / tests をビルド
 #                                          （gcc では -fanalyzer も -Werror で実行する）
 #
@@ -42,15 +44,26 @@ step "$CC $STD MODE=$MODE"
 "$CC" --version | head -1
 
 if [ "$MODE" = cross ]; then
-    step "cross: compile examples / tests (no run)"
+    step "cross: examples / tests${CROSS_RUN:+ (run: $CROSS_RUN)}"
     for f in examples/*.c tests/test_*.c; do
         # POSIX スレッドに依存するデモはベアメタル向けには対象外
         if ci_flags "$f" | grep -q pthread; then echo "skip $f"; continue; fi
-        "$CC" "${BASE[@]}" "${EXTRA[@]}" -c -o "$OUT/cross.o" "$f"
+        if [ -z "${CROSS_RUN:-}" ]; then
+            "$CC" "${BASE[@]}" "${EXTRA[@]}" -c -o "$OUT/cross.o" "$f"
+        else
+            bin="$OUT/$(basename "$f" .c).elf"
+            "$CC" "${BASE[@]}" "${EXTRA[@]}" -o "$bin" "$f"
+            # shellcheck disable=SC2086
+            $CROSS_RUN "$bin" > "$bin.log" 2>&1 || { echo "FAIL: $f"; cat "$bin.log"; exit 1; }
+        fi
         echo "ok   $f"
     done
-    step "cross: spec (run-pass is compile only)"
-    CC="$CC" STD="$STD" EXTRA_CFLAGS="${CROSS_CFLAGS:-}" COMPILE_ONLY=1 bash spec/run.sh
+    step "cross: spec"
+    if [ -z "${CROSS_RUN:-}" ]; then
+        CC="$CC" STD="$STD" EXTRA_CFLAGS="${CROSS_CFLAGS:-}" COMPILE_ONLY=1 bash spec/run.sh
+    else
+        CC="$CC" STD="$STD" EXTRA_CFLAGS="${CROSS_CFLAGS:-}" RUNNER="$CROSS_RUN" bash spec/run.sh
+    fi
     echo
     echo "all checks passed ($CC $STD MODE=$MODE)"
     exit 0
