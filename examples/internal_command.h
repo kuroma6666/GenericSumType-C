@@ -4,7 +4,7 @@
  * internal_command_demo.c と tests/test_internal_command.c から共有される
  * 「内部処理系」コマンドの型・DISPATCH定義・ハンドラ本体。
  *
- * design_spec.md 4.10節で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
+ * C-11 / G-007 で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
  * 複数の.cからincludeする」というパターンを応用し、デモ本体(main()のみ)と
  * 単体テスト(ハンドラ/DISPATCHを直接assertする)がロジックを共有できるように
  * 分離している。ハンドラは各TUで同一定義になるよう static inline にしており、
@@ -24,7 +24,7 @@
 /* --- 各コマンドのpayload ---
  * MSP(印字停止)やERC(エラー解除)、GDS(ガイド光停止)はパラメータを持たない
  * コマンドだが、「素の基本型を直接使わずstructでラップする」という設計指針
- * (design_spec.md 3節)に倣い、単なるトリガーであっても専用structを与える。
+ * (docs/constraints.md C-01)に倣い、単なるトリガーであっても専用structを与える。
  */
 typedef struct { int kind; }       CmdPrintStart;   /* MST: 0=通常, 1=連続 */
 typedef struct { int reserved; }   CmdPrintStop;    /* MSP: パラメータなし */
@@ -73,8 +73,6 @@ static inline void on_print_start(CmdPrintStart *c, LaserDeviceState *st) {
 SUM_MAYBE_UNUSED
 static inline void on_print_stop(CmdPrintStop *c, LaserDeviceState *st) {
     (void)c;
-    /* 実機の仕様書と同様、「印字中の即時停止はできない」という制約を
-     * 模して、実際の停止はrunning状態のチェックを経てから行う例にしている。 */
     st->printing = 0;
     printf("[print_stop]  printing停止\n");
 }

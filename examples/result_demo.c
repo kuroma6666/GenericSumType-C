@@ -15,7 +15,7 @@
  *   - DEFINE_SUM_TYPE(tag=ok/err) + DEFINE_RESULT_HELPERS（is_ok/is_err）。
  *   - fold は DEFINE_SUM_MATCH_CONST、取り出しは const ゲッター。
  *   - 型が変わる合成（map: Result<T,E>->Result<U,E> / map_err）は C では汎用化
- *     できない（design_spec 2.10節）。同型 and_then か目標型明示の手書きに限る。
+ *     できない（C-13）。同型 and_then か目標型明示の手書きに限る。
  *
  * 仕様の詳細: examples/specs/order_result.md
  */

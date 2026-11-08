@@ -16,7 +16,7 @@
  * 【実装方針】
  *   - DEFINE_SUM_TYPE で ConfigValue と new_/get_ を生成。
  *   - DEFINE_SUM_MATCH で print 用の網羅ディスパッチを生成（ハンドラは payload のみ）。
- *   - 網羅性は関数プロトタイプの引数個数チェックで強制される（design_spec 3節）。
+ *   - 網羅性は関数プロトタイプの引数個数チェックで強制される（G-001）。
  *
  * 仕様の詳細: examples/specs/config_value.md
  */

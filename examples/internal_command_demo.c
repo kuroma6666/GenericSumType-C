@@ -4,7 +4,7 @@
  * 「内部処理系」のCommandパターン例。
  *
  * 型定義・DISPATCH・ハンドラ本体は internal_command.h に集約されている
- * (tests/test_internal_command.c と共有するため。design_spec.md 4.10節参照)。
+ * (tests/test_internal_command.c と共有するため。C-11 / G-007 参照)。
  * このファイルは、通信層で受信・デコードされた後の「内部コマンド列」を
  * 模したキューを流すだけの、薄いドライバである。
  *

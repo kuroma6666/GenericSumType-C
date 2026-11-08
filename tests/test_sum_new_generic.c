@@ -7,11 +7,11 @@
  * このファイルは丸ごと__STDC_VERSION__で分岐し、C99実行時は
  * テストをスキップした旨を表示するだけにしている。ci.ymlはtests/test_*.cを
  * c99/c11/c17全マトリクスで無条件にビルド・実行するため、この分岐が
- * ないとc99ジョブが壊れる（design_spec.md 4.13節で検証済みの制約）。
+ * ないとc99ジョブが壊れる（ADR-0008 で検証済みの制約）。
  *
  * 「渡し忘れ」「型取り違え」に相当する検証（コンパイルが失敗するべきケース）は
- * ランタイムのassertテストには書けないため、test_compile_guarantees.shの方に
- * ケースを追加している。
+ * ランタイムのassertテストには書けないため、spec/ の方にケースを置いている
+ * （G-008〜G-010, G-017）。
  *
  * ビルド:  gcc -std=c11 -pedantic -Wall -Wextra -Werror -o test_sum_new_generic test_sum_new_generic.c
  * 実行:    ./test_sum_new_generic

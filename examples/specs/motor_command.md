@@ -11,7 +11,7 @@
 
 ## 実装対応
 - 副作用を伴うため `DEFINE_SUM_DISPATCH(MotorCmd, ..., MotorCmd_apply, MotorState)`（ハンドラは payload と ctx を受け取り戻り値 void）。
-- データを持たない `stop` は「1 variant = 1 型」制約によりダミー1フィールド struct で表す（design_spec 4.4節）。
+- データを持たない `stop` は「1 variant = 1 型」制約によりダミー1フィールド struct で表す（[C-06](../../docs/constraints.md#c-06)）。
 
 ## 受け入れ基準
 - コマンド列を順に適用して状態が期待どおり遷移する（pos=250, rpm=0）。

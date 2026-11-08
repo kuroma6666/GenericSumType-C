@@ -4,7 +4,7 @@
  * recipe_param_demo.c と tests/test_recipe_command.c から共有される
  * 「ROM/RAMパラメータ取得系」コマンドの型・DISPATCH定義・ハンドラ本体。
  *
- * design_spec.md 4.10節で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
+ * C-11 / G-007 で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
  * 複数の.cからincludeする」というパターンを応用している。
  *
  * 参考: PALLASER社 レーザーマーカー 通信コマンド仕様書 Ver.2.0
@@ -66,8 +66,11 @@ static inline void on_create(CmdRecipeCreate *c, RecipeStore *store) {
     }
     RecipeSlot *slot = &store->slots[c->number];
     slot->used = 1;
-    strncpy(slot->name, c->name, RECIPE_NAME_MAX - 1);
-    slot->name[RECIPE_NAME_MAX - 1] = '\0';
+    /* c->name と slot->name は同じ長さの配列。全体を複写してから終端を保証する。
+     * strncpy(dst, src, N-1) は GCC の -O2 で -Wstringop-truncation になり、
+     * 利用側に要求している -Werror 運用と両立しないため使わない。 */
+    memcpy(slot->name, c->name, sizeof slot->name);
+    slot->name[sizeof slot->name - 1] = '\0';
     printf("[create] 品種番号=%d name=\"%s\" を作成しました\n", c->number, slot->name);
 }
 

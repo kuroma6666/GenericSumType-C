@@ -17,7 +17,7 @@
  *     pthread_mutex を差し込む（本ヘッダ include の前に #define）。
  *   - RTOS ではこのフックをセマフォ等に差し替えるだけでよい（ライブラリ本体は不変）。
  *   - 注意: ハンドラ内から同一 ctx へ再 dispatch すると非再帰ロックでデッドロックする
- *     （design_spec 4.8節）。本デモは再入しない。
+ *     （C-09）。本デモは再入しない。
  *
  * 仕様の詳細: examples/specs/telemetry_counter.md
  */

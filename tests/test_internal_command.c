@@ -6,7 +6,7 @@
  *
  * ハンドラは internal_command.h 側で static inline として定義されているため、
  * このテストファイルからも demo と全く同じ実装を直接呼び出せる
- * (design_spec.md 4.10節: 複数TUでの共有パターンの応用)。
+ * (C-11 / G-007: 複数TUでの共有パターンの応用)。
  *
  * ビルド: gcc -std=c11 -pedantic -Wall -Wextra -Werror -Iinclude \
  *             -o test_internal_command tests/test_internal_command.c

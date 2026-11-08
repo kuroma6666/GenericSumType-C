@@ -16,7 +16,7 @@
  * 【実装方針】
  *   - DEFINE_SUM_MATCH を用途別に2回（fill_cost / label）呼ぶ。
  *   - 各 variant を専用 struct にすることで、面積ハンドラと別ハンドラの
- *     取り違えも型で検出できる（design_spec 3節: 素の基本型を避ける）。
+ *     取り違えも型で検出できる（C-01: 素の基本型を避ける）。
  *
  * 仕様の詳細: examples/specs/draw_primitive.md
  */

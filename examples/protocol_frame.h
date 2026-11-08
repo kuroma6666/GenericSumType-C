@@ -4,7 +4,7 @@
  * protocol_frame_demo.c と tests/test_protocol_frame.c から共有される
  * 「通信処理系」フレームの型・MATCH定義・分類ロジック・チェックサム計算。
  *
- * design_spec.md 4.10節で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
+ * C-11 / G-007 で検証済みの「型定義を1つの共通ヘッダに1回だけ書き、
  * 複数の.cからincludeする」というパターンを応用している。
  *
  * 参考: PALLASER社 レーザーマーカー 通信コマンド仕様書 Ver.2.0
@@ -17,7 +17,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
 #include "generic_sum_type.h"
 
 /* --- NGエラー番号(仕様書2.1.3 NGエラーの表に対応) --- */
@@ -97,6 +96,30 @@ static inline int describe_ng(FrameNgReply *f) {
     return 0;
 }
 
+/* --- "CMD[,args...]" を command / args に分ける(W, と R, の共通部分) ---
+ * 格納先の長さを超える分は切り捨て、必ず NUL で終端する。
+ * FrameWriteRequest / FrameReadRequest は同じフィールド構成だが、C-01 に従って
+ * 別の型にしてあるため、フィールドと長さを個別に受け取る形で共有している。
+ */
+SUM_MAYBE_UNUSED
+static inline void split_command_and_args(const char *rest,
+                                          char *command, size_t command_cap,
+                                          char *args, size_t args_cap) {
+    const char *comma = strchr(rest, ',');
+    size_t cmd_len = comma ? (size_t)(comma - rest) : strlen(rest);
+    if (cmd_len >= command_cap) cmd_len = command_cap - 1;
+    memcpy(command, rest, cmd_len);
+    command[cmd_len] = '\0';
+    if (comma == NULL) {
+        args[0] = '\0';   /* コンマがない = 引数なし */
+        return;
+    }
+    size_t args_len = strlen(comma + 1);
+    if (args_len >= args_cap) args_len = args_cap - 1;
+    memcpy(args, comma + 1, args_len);
+    args[args_len] = '\0';
+}
+
 /* --- 受信した1行(デリミタ除去済み)をFrameへ分類するクラシファイア ---
  * 「,」区切りの先頭トークンでW/R/OK/NGを判別する、簡略化したパーサー。
  * 実際の仕様書ではSTX/ETX付加の有無やチェックサム検証も併せて行うが、
@@ -106,35 +129,19 @@ SUM_MAYBE_UNUSED
 static inline Frame classify_line(const char *line) {
     if (strncmp(line, "W,", 2) == 0) {
         FrameWriteRequest f = { { 0 }, { 0 } };
-        const char *rest = line + 2;
-        const char *comma = strchr(rest, ',');
-        size_t cmd_len = comma ? (size_t)(comma - rest) : strlen(rest);
-        if (cmd_len >= sizeof(f.command)) cmd_len = sizeof(f.command) - 1;
-        memcpy(f.command, rest, cmd_len);
-        if (comma) {
-            size_t args_len = strlen(comma + 1);
-            if (args_len >= sizeof(f.args)) args_len = sizeof(f.args) - 1;
-            memcpy(f.args, comma + 1, args_len);
-        }
+        split_command_and_args(line + 2, f.command, sizeof f.command, f.args, sizeof f.args);
         return Frame_new_write_request(f);
     }
     if (strncmp(line, "R,", 2) == 0) {
         FrameReadRequest f = { { 0 }, { 0 } };
-        const char *rest = line + 2;
-        const char *comma = strchr(rest, ',');
-        size_t cmd_len = comma ? (size_t)(comma - rest) : strlen(rest);
-        if (cmd_len >= sizeof(f.command)) cmd_len = sizeof(f.command) - 1;
-        memcpy(f.command, rest, cmd_len);
-        if (comma) {
-            size_t args_len = strlen(comma + 1);
-            if (args_len >= sizeof(f.args)) args_len = sizeof(f.args) - 1;
-            memcpy(f.args, comma + 1, args_len);
-        }
+        split_command_and_args(line + 2, f.command, sizeof f.command, f.args, sizeof f.args);
         return Frame_new_read_request(f);
     }
     if (strncmp(line, "NG,T", 4) == 0) {
         int code = 0;
-        sscanf(line + 4, "%3d", &code);
+        if (sscanf(line + 4, "%3d", &code) != 1) {
+            code = 0;   /* 番号が読めない NG は「未知のエラー番号」として扱う */
+        }
         return Frame_new_ng_reply((FrameNgReply){ .error_code = code });
     }
     /* 上記いずれにも当てはまらなければOK応答とみなす(簡略化) */

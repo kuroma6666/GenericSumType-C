@@ -18,7 +18,7 @@
  *   - 副作用（ctx への書き込み）を伴うため DEFINE_SUM_MATCH ではなく
  *     DEFINE_SUM_DISPATCH を使う（ハンドラは payload と ctx を受け取る／戻り値 void）。
  *   - stop はデータを持たないが「1 variant = 1 型」の制約によりダミー struct で表す
- *     （design_spec 4.4節）。
+ *     （C-06）。
  *
  * 仕様の詳細: examples/specs/motor_command.md
  */

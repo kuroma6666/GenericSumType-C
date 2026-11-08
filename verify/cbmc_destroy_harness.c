@@ -3,7 +3,7 @@
  *
  * DEFINE_SUM_DESTROY呼び出し忘れ/cleanup属性の二重解放について、
  * CBMC(Bounded Model Checker for C)で検証するためのハーネス。
- * design_spec.md 8節「DEFINE_SUM_DESTROY/DEFINE_SUM_COPYの呼び出し忘れ自体を
+ * VERIFICATION_LOG.md 8節「DEFINE_SUM_DESTROY/DEFINE_SUM_COPYの呼び出し忘れ自体を
  * 検出する手段」の検証で使ったもの。CIには組み込んでおらず、CBMCが使える
  * 環境での任意の追加検証という位置づけ(通常のビルド・テストには影響しない)。
  *
@@ -12,10 +12,10 @@
  *                          -> エラーなし(サニティチェック)
  *   2. leaked_case       : destroyを呼び忘れる場合
  *                          -> --memory-leak-check がリークを検出するはず
- *                          (design_spec.md 8節: gccの-fanalyzerでは検出できなかった問題)
+ *                          (VERIFICATION_LOG.md 8節: gccの-fanalyzerでは検出できなかった問題)
  *   3. double_free_case  : 値コピー後にcleanup相当の解放を2回呼んでしまう場合
  *                          -> --pointer-check が二重解放を検出するはず
- *                          (design_spec.md 8節: ASanで再現した問題を別ツールで裏付け)
+ *                          (VERIFICATION_LOG.md 8節: ASanで再現した問題を別ツールで裏付け)
  *
  * 注意: __attribute__((cleanup(...))) 自体をCBMCが正しくモデル化できるかは
  * 未確認のため、double_free_case ではcleanup属性そのものは使わず、GCCの
@@ -39,7 +39,7 @@
  *
  * 3関数ともループ・再帰を含まないため、CBMCのシンボリック実行は近似(bounded)
  * ではなく状態空間を網羅的に探索できる。実機Linux(CBMC 5.95.1)で実行し、
- * 上記3件とも期待通りの結果になることを確認済み(design_spec.md 8節参照)。
+ * 上記3件とも期待通りの結果になることを確認済み(VERIFICATION_LOG.md 8節参照)。
  *
  * 期待と違う結果が出た場合(特にsafe_caseが失敗する場合)は、
  * ハーネス自体かCBMCのバージョン差異を疑うこと。

@@ -13,7 +13,7 @@
  * 【実装方針】
  *   - DEFINE_SUM_TYPE(tag=left/right) + DEFINE_EITHER_HELPERS（is_left/is_right）。
  *   - fold は DEFINE_SUM_MATCH_CONST の左右2ハンドラ、取り出しは const ゲッター。
- *   - L と R を別 struct にすることで左右ハンドラ取り違えを型で検出（design_spec 3節）。
+ *   - L と R を別 struct にすることで左右ハンドラ取り違えを型で検出（G-002 / C-01）。
  *
  * 仕様の詳細: examples/specs/cache_lookup.md
  */
