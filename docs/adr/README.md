@@ -21,3 +21,4 @@ ADR は**追記型**である。決定が覆った場合も既存ファイルは
 | [0008](./0008-generic-constructor-selection.md) | `_Generic` でコンストラクタを型から選択する（C11 以降） |
 | [0009](./0009-non-breaking-const-support.md) | const 対応を破壊的変更ではなく追加で行う |
 | [0010](./0010-unhandled-tag-hook.md) | 不正 tag の検知をフックとして提供する |
+| [0011](./0011-reserved-internal-identifiers.md) | 生成コードの内部識別子を `sum_*_` の予約名に限定する |

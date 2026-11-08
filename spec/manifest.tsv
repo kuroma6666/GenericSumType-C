@@ -35,3 +35,4 @@ G-016	guarantee	compile-pass	any	docs/adr/0005-either-result-thin-helpers.md	Res
 G-017	guarantee	compile-fail	c11+	docs/constraints.md#c-01	typedef 別名で同一型になった 2 variant を検出する
 G-018	known-limit	compile-pass	c99only	docs/constraints.md#c-01	C99 ではペイロード型の重複を検出できない
 G-019	guarantee	run-pass	any	docs/adr/0010-unhandled-tag-hook.md	不正 tag で SUM_UNHANDLED_TAG が発火しハンドラは呼ばれない
+G-020	guarantee	compile-pass	any	docs/adr/0011-reserved-internal-identifiers.md	生成コードの仮引数が利用側の大域名と衝突せず -Wshadow を出さない

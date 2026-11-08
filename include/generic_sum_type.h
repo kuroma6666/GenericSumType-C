@@ -76,6 +76,14 @@
  * いずれも本ヘッダを include する前に再定義する。ロック区間はハンドラ本体全体を
  * 包むため、同一ctxへの再dispatchは非再帰ロックでデッドロックする（C-09）。
  *
+ * --- 生成コード内のローカル識別子 ---
+ *
+ * 生成される関数の仮引数・ローカル変数は sum_ で始まり _ で終わる名前
+ * （sum_self_, sum_ctx_, sum_on_<tag>_ など）に限る。利用側が self / ctx /
+ * NAME_on_<tag> のような自然な名前を大域に持っていても、生成コードがそれを隠して
+ * -Wshadow を出さないようにするため（docs/adr/0011-reserved-internal-identifiers.md、G-020）。
+ * 利用側はこの形（sum_*_）の識別子を定義しないこと。
+ *
  * --- 未使用関数の警告について ---
  *
  * 生成された全関数を毎回使い切るとは限らない（コンストラクタとdispatchだけ使い
@@ -128,14 +136,15 @@
 
 #define SUM_CTOR(NAME, EXTRA, TAG, TYPE)                             \
     SUM_MAYBE_UNUSED                                                 \
-    static inline NAME NAME##_new_##TAG(TYPE v) {                    \
-        return (NAME){ .tag = NAME##_##TAG, .as.TAG = v };           \
+    static inline NAME NAME##_new_##TAG(TYPE sum_value_) {           \
+        return (NAME){ .tag = NAME##_##TAG, .as.TAG = sum_value_ };  \
     }
 
 #define SUM_GETTER(NAME, EXTRA, TAG, TYPE)                           \
     SUM_MAYBE_UNUSED                                                 \
-    static inline TYPE *NAME##_get_##TAG(NAME *self) {               \
-        return self->tag == NAME##_##TAG ? &self->as.TAG : NULL;     \
+    static inline TYPE *NAME##_get_##TAG(NAME *sum_self_) {          \
+        return sum_self_->tag == NAME##_##TAG                         \
+            ? &sum_self_->as.TAG : NULL;                              \
     }
 
 /* read-only 版ゲッター。const NAME* から呼べ、payload オブジェクト自体を const 化した
@@ -146,8 +155,9 @@
 #define SUM_GETTER_CONST(NAME, EXTRA, TAG, TYPE)                     \
     SUM_MAYBE_UNUSED                                                 \
     static inline TYPE const *NAME##_get_##TAG##_const(             \
-        const NAME *self) {                                          \
-        return self->tag == NAME##_##TAG ? &self->as.TAG : NULL;     \
+        const NAME *sum_self_) {                                     \
+        return sum_self_->tag == NAME##_##TAG                         \
+            ? &sum_self_->as.TAG : NULL;                              \
     }
 
 #define DEFINE_SUM_TYPE(NAME, VARIANTS)                              \
@@ -169,8 +179,8 @@
  * left/right, ok/err 以外の2択（pending/done 等）にもそのまま使える。 */
 #define SUM_DEFINE_PREDICATE(NAME, TAG)                             \
     SUM_MAYBE_UNUSED                                                \
-    static inline int NAME##_is_##TAG(const NAME *self) {          \
-        return self->tag == NAME##_##TAG;                          \
+    static inline int NAME##_is_##TAG(const NAME *sum_self_) {     \
+        return sum_self_->tag == NAME##_##TAG;                     \
     }
 
 /* ---- Either イディオム用ヘルパ ----
@@ -199,24 +209,40 @@
     SUM_DEFINE_PREDICATE(NAME, ok)                                  \
     SUM_DEFINE_PREDICATE(NAME, err)
 
+/* ---- 値を返すディスパッチャ（MATCH / MATCH_CONST / COPY）の共通骨格 ----
+ * この3つは「self の const 修飾」「ハンドラ仮引数の型」「case 節の中身」だけが
+ * 異なり、不正 tag 時の処理（SUM_UNHANDLED_TAG → SUM_UNREACHABLE。戻り値を用意
+ * できないため復帰できない）は同一である。骨格を1箇所に置くのは、Either / Result の
+ * 述語を SUM_DEFINE_PREDICATE に畳んだのと同じ理由（docs/adr/0005-either-result-thin-helpers.md）。
+ * void を返す DISPATCH / DESTROY は不正 tag 時に正常復帰するため構造が異なり、
+ * ここには含めない（docs/adr/0010-unhandled-tag-hook.md）。
+ *
+ *   SELF_TYPE  self の型。NAME（可変）または const NAME（read-only）
+ *   PARAM      ハンドラ仮引数を1個生成するアスペクトマクロ（EXTRA には RET_TYPE が渡る）
+ *   CASE       case 節を1個生成するアスペクトマクロ（同上）
+ */
+#define SUM_VALUE_DISPATCHER_(NAME, VARIANTS, FN, RET_TYPE, SELF_TYPE, PARAM, CASE) \
+    SUM_MAYBE_UNUSED                                                        \
+    static inline RET_TYPE FN(SELF_TYPE *sum_self_                          \
+        VARIANTS(PARAM, NAME, RET_TYPE)) {                                  \
+        switch (sum_self_->tag) {                                           \
+            VARIANTS(CASE, NAME, RET_TYPE)                                  \
+        }                                                                    \
+        SUM_UNHANDLED_TAG(sum_self_);                                        \
+        SUM_UNREACHABLE();                                                   \
+    }
+
 /* ---- DEFINE_SUM_MATCH が使うアスペクトマクロ ---- */
 
 #define SUM_MATCH_PARAM(NAME, RET_TYPE, TAG, TYPE)                   \
-    , RET_TYPE (*NAME##_on_##TAG)(TYPE *)
+    , RET_TYPE (*sum_on_##TAG##_)(TYPE *)
 
 #define SUM_MATCH_CASE(NAME, RET_TYPE, TAG, TYPE)                    \
-    case NAME##_##TAG: return NAME##_on_##TAG(&self->as.TAG);
+    case NAME##_##TAG: return sum_on_##TAG##_(&sum_self_->as.TAG);
 
 #define DEFINE_SUM_MATCH(NAME, VARIANTS, MATCH_FN, RET_TYPE)                \
-    SUM_MAYBE_UNUSED                                                        \
-    static inline RET_TYPE MATCH_FN(NAME *self                             \
-        VARIANTS(SUM_MATCH_PARAM, NAME, RET_TYPE)) {                        \
-        switch (self->tag) {                                                \
-            VARIANTS(SUM_MATCH_CASE, NAME, RET_TYPE)                        \
-        }                                                                    \
-        SUM_UNHANDLED_TAG(self);                                             \
-        SUM_UNREACHABLE();                                                   \
-    }
+    SUM_VALUE_DISPATCHER_(NAME, VARIANTS, MATCH_FN, RET_TYPE,               \
+                          NAME, SUM_MATCH_PARAM, SUM_MATCH_CASE)
 
 /* ---- DEFINE_SUM_MATCH_CONST が使うアスペクトマクロ ----
  * DEFINE_SUM_MATCH の read-only 版。self を const NAME* で受け、各ハンドラも
@@ -225,25 +251,16 @@
  * payload を書き換える用途では従来の DEFINE_SUM_MATCH（可変版）を使うこと。
  * east const を使う理由は SUM_GETTER_CONST と同じ（TYPE がポインタ型でも
  * payload オブジェクト自体に const を付けるため）。
+ * 可変版との差はハンドラ仮引数の型だけなので、case 節は SUM_MATCH_CASE を共用する。
  * 網羅性検査・順序取り違え検出は可変版と同一の仕組みで働く（docs/GUARANTEES.md G-001, G-002）。
  */
 
 #define SUM_MATCH_CONST_PARAM(NAME, RET_TYPE, TAG, TYPE)             \
-    , RET_TYPE (*NAME##_on_##TAG)(TYPE const *)
-
-#define SUM_MATCH_CONST_CASE(NAME, RET_TYPE, TAG, TYPE)              \
-    case NAME##_##TAG: return NAME##_on_##TAG(&self->as.TAG);
+    , RET_TYPE (*sum_on_##TAG##_)(TYPE const *)
 
 #define DEFINE_SUM_MATCH_CONST(NAME, VARIANTS, MATCH_FN, RET_TYPE)          \
-    SUM_MAYBE_UNUSED                                                        \
-    static inline RET_TYPE MATCH_FN(const NAME *self                       \
-        VARIANTS(SUM_MATCH_CONST_PARAM, NAME, RET_TYPE)) {                  \
-        switch (self->tag) {                                                \
-            VARIANTS(SUM_MATCH_CONST_CASE, NAME, RET_TYPE)                  \
-        }                                                                    \
-        SUM_UNHANDLED_TAG(self);                                             \
-        SUM_UNREACHABLE();                                                   \
-    }
+    SUM_VALUE_DISPATCHER_(NAME, VARIANTS, MATCH_FN, RET_TYPE,               \
+                          const NAME, SUM_MATCH_CONST_PARAM, SUM_MATCH_CASE)
 
 /* ---- DEFINE_SUM_DISPATCH が使うアスペクトマクロ ----
  * DEFINE_SUM_MATCH との違いは、各ハンドラが payload に加えて
@@ -252,11 +269,11 @@
  */
 
 #define SUM_DISPATCH_PARAM(NAME, CTX_TYPE, TAG, TYPE)                \
-    , void (*NAME##_on_##TAG)(TYPE *, CTX_TYPE *)
+    , void (*sum_on_##TAG##_)(TYPE *, CTX_TYPE *)
 
 #define SUM_DISPATCH_CASE(NAME, CTX_TYPE, TAG, TYPE)                 \
     case NAME##_##TAG:                                                \
-        NAME##_on_##TAG(&self->as.TAG, ctx);                          \
+        sum_on_##TAG##_(&sum_self_->as.TAG, sum_ctx_);                \
         sum_handled_ = 1;                                             \
         break;
 
@@ -267,15 +284,15 @@
  * （docs/adr/0010-unhandled-tag-hook.md）。 */
 #define DEFINE_SUM_DISPATCH(NAME, VARIANTS, DISPATCH_FN, CTX_TYPE)         \
     SUM_MAYBE_UNUSED                                                       \
-    static inline void DISPATCH_FN(NAME *self, CTX_TYPE *ctx              \
+    static inline void DISPATCH_FN(NAME *sum_self_, CTX_TYPE *sum_ctx_    \
         VARIANTS(SUM_DISPATCH_PARAM, NAME, CTX_TYPE)) {                    \
         int sum_handled_ = 0;                                              \
-        SUM_CTX_LOCK(ctx);                                                  \
-        switch (self->tag) {                                               \
+        SUM_CTX_LOCK(sum_ctx_);                                             \
+        switch (sum_self_->tag) {                                          \
             VARIANTS(SUM_DISPATCH_CASE, NAME, CTX_TYPE)                    \
         }                                                                   \
-        if (!sum_handled_) { SUM_UNHANDLED_TAG(self); }                    \
-        SUM_CTX_UNLOCK(ctx);                                                \
+        if (!sum_handled_) { SUM_UNHANDLED_TAG(sum_self_); }               \
+        SUM_CTX_UNLOCK(sum_ctx_);                                           \
     }
 
 /* ---- DEFINE_SUM_DESTROY が使うアスペクトマクロ ----
@@ -285,26 +302,26 @@
  */
 
 #define SUM_DESTROY_PARAM(NAME, EXTRA, TAG, TYPE)                    \
-    , void (*NAME##_on_##TAG)(TYPE *)
+    , void (*sum_on_##TAG##_)(TYPE *)
 
 #define SUM_DESTROY_CASE(NAME, EXTRA, TAG, TYPE)                     \
-    case NAME##_##TAG: NAME##_on_##TAG(&self->as.TAG); return;
+    case NAME##_##TAG: sum_on_##TAG##_(&sum_self_->as.TAG); return;
 
 #define DEFINE_SUM_DESTROY(NAME, VARIANTS, DESTROY_FN)                     \
     SUM_MAYBE_UNUSED                                                       \
-    static inline void DESTROY_FN(NAME *self                              \
+    static inline void DESTROY_FN(NAME *sum_self_                         \
         VARIANTS(SUM_DESTROY_PARAM, NAME, _)) {                            \
-        switch (self->tag) {                                               \
+        switch (sum_self_->tag) {                                          \
             VARIANTS(SUM_DESTROY_CASE, NAME, _)                            \
-        }                                                                   \
+        }                                                                  \
         /* 各caseは return; で抜けるため、ここに到達＝不正tag */             \
-        SUM_UNHANDLED_TAG(self);                                            \
+        SUM_UNHANDLED_TAG(sum_self_);                                       \
     }
 
 /* 資源を持たないvariant向けの「何もしないデストラクタ」を生成するヘルパー */
 #define SUM_DEFINE_NOOP_DESTROY(FN_NAME, TYPE)                       \
     SUM_MAYBE_UNUSED                                                 \
-    static inline void FN_NAME(TYPE *v) { (void)v; }
+    static inline void FN_NAME(TYPE *sum_value_) { (void)sum_value_; }
 
 /* ---- DEFINE_SUM_COPY が使うアスペクトマクロ ----
  * ポインタ資源を持つvariantのディープコピー（例: strdup）を行うためのコピーディスパッチ。
@@ -312,28 +329,23 @@
  */
 
 #define SUM_COPY_PARAM(NAME, EXTRA, TAG, TYPE)                       \
-    , TYPE (*NAME##_copy_##TAG)(const TYPE *)
+    , TYPE (*sum_copy_##TAG##_)(const TYPE *)
 
 #define SUM_COPY_CASE(NAME, EXTRA, TAG, TYPE)                        \
     case NAME##_##TAG:                                                \
         return (NAME){ .tag = NAME##_##TAG,                           \
-                        .as.TAG = NAME##_copy_##TAG(&self->as.TAG) };
+                        .as.TAG = sum_copy_##TAG##_(&sum_self_->as.TAG) };
 
+/* 戻り型は NAME 自身。骨格マクロの RET_TYPE（= アスペクトマクロの EXTRA）に NAME を
+ * 渡すが、SUM_COPY_PARAM / SUM_COPY_CASE は EXTRA を使わない。 */
 #define DEFINE_SUM_COPY(NAME, VARIANTS, COPY_FN)                           \
-    SUM_MAYBE_UNUSED                                                       \
-    static inline NAME COPY_FN(const NAME *self                           \
-        VARIANTS(SUM_COPY_PARAM, NAME, _)) {                               \
-        switch (self->tag) {                                               \
-            VARIANTS(SUM_COPY_CASE, NAME, _)                               \
-        }                                                                   \
-        SUM_UNHANDLED_TAG(self);                                            \
-        SUM_UNREACHABLE();                                                  \
-    }
+    SUM_VALUE_DISPATCHER_(NAME, VARIANTS, COPY_FN, NAME,                   \
+                          const NAME, SUM_COPY_PARAM, SUM_COPY_CASE)
 
 /* 値そのものを複製するだけでよいvariant向けの「浅いコピー」を生成するヘルパー */
 #define SUM_DEFINE_IDENTITY_COPY(FN_NAME, TYPE)                      \
     SUM_MAYBE_UNUSED                                                 \
-    static inline TYPE FN_NAME(const TYPE *v) { return *v; }
+    static inline TYPE FN_NAME(const TYPE *sum_value_) { return *sum_value_; }
 
 /* ---- DEFINE_SUM_NEW_GENERIC / SUM_NEW が使うアスペクトマクロ（C11以降限定） ----
  * ヘッダ冒頭のコメント「DEFINE_SUM_NEW_GENERIC / SUM_NEW について」を参照。

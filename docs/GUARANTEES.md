@@ -36,6 +36,7 @@
 | [G-016](#g-016) | コンパイル成功 | C99 以降すべて | Result ヘルパを ok/err の tag に使う | [ADR-0005](adr/0005-either-result-thin-helpers.md) |
 | [G-017](#g-017) | コンパイル失敗 | C11 以降のみ | typedef 別名で同一型になった 2 variant を検出する | [C-01](constraints.md#c-01) |
 | [G-019](#g-019) | ビルド・実行成功 | C99 以降すべて | 不正 tag で SUM_UNHANDLED_TAG が発火しハンドラは呼ばれない | [ADR-0010](adr/0010-unhandled-tag-hook.md) |
+| [G-020](#g-020) | コンパイル成功 | C99 以降すべて | 生成コードの仮引数が利用側の大域名と衝突せず -Wshadow を出さない | [ADR-0011](adr/0011-reserved-internal-identifiers.md) |
 
 ## 既知の限界
 
@@ -584,3 +585,55 @@ int main(void) {
 ```
 
 <sub>ケース断片: [`spec/cases/G-019.c`](../spec/cases/G-019.c)</sub>
+
+<a id="g-020"></a>
+
+### G-020 — 生成コードの仮引数が利用側の大域名と衝突せず -Wshadow を出さない
+
+| 種別 | 期待結果 | 対象 | 根拠 |
+|---|---|---|---|
+| 保証 | コンパイル成功 | C99 以降すべて | [ADR-0011](adr/0011-reserved-internal-identifiers.md) |
+
+```c
+/* 生成コードの仮引数・ローカル変数は sum_ で始まり _ で終わる名前に限られる。
+ * 利用側が self / ctx / v や NAME_on_<tag> / NAME_copy_<tag> という名前を大域に
+ * 持っていても、生成関数の仮引数がそれを隠して -Wshadow を出すことはない。
+ * -Wshadow は -Wall / -Wextra に含まれないため、この TU だけ error に昇格して検査する。 */
+#pragma GCC diagnostic error "-Wshadow"
+#include "generic_sum_type.h"
+typedef struct { int a; } PA;
+typedef struct { int b; } PB;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, b, PB)
+typedef struct { int n; } Ctx;
+static Ctx *ctx;   /* 生成コードが仮引数名に使いそうな名前を大域に置く */
+static int self;
+static int v;
+DEFINE_SUM_TYPE(T, V)
+DEFINE_SUM_MATCH(T, V, T_match, int)
+DEFINE_SUM_MATCH_CONST(T, V, T_match_const, int)
+DEFINE_SUM_DISPATCH(T, V, T_dispatch, Ctx)
+DEFINE_SUM_DESTROY(T, V, T_destroy)
+DEFINE_SUM_COPY(T, V, T_copy)
+SUM_DEFINE_PREDICATE(T, a)
+static void T_on_a(PA *p, Ctx *c) { (void)p; c->n++; }   /* NAME_on_<tag> という自然な命名 */
+static void T_on_b(PB *p, Ctx *c) { (void)p; c->n++; }
+SUM_DEFINE_IDENTITY_COPY(T_copy_a, PA)                    /* NAME_copy_<tag> も同様 */
+SUM_DEFINE_IDENTITY_COPY(T_copy_b, PB)
+static int ma(PA *p) { return p->a; }
+static int mb(PB *p) { return p->b; }
+static int ca(const PA *p) { return p->a; }
+static int cb(const PB *p) { return p->b; }
+static void za(PA *p) { (void)p; }
+static void zb(PB *p) { (void)p; }
+int main(void) {
+    Ctx c = { 0 };
+    ctx = &c; self = 0; v = 0;
+    T t = T_new_a((PA){ 1 });
+    T_dispatch(&t, &c, T_on_a, T_on_b);
+    T u = T_copy(&t, T_copy_a, T_copy_b);
+    T_destroy(&u, za, zb);
+    return T_match(&t, ma, mb) + T_match_const(&t, ca, cb) + T_is_a(&t) + c.n + self + v - 4;
+}
+```
+
+<sub>ケース断片: [`spec/cases/G-020.c`](../spec/cases/G-020.c)</sub>

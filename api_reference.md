@@ -84,7 +84,7 @@ DEFINE_SUM_MATCH(NAME, VARIANTS, MATCH_FN, RET_TYPE)
 | `MATCH_FN` | `RET_TYPE MATCH_FN(NAME *self, RET_TYPE (*on_tag1)(Type1*), RET_TYPE (*on_tag2)(Type2*), ...)` |
 
 - ハンドラの並び順は型リストの定義順と一致させる(渡し忘れ・順序取り違えはコンパイルエラーで検出される。[C-01](./docs/constraints.md#c-01))。
-- `RET_TYPE = void` は**非推奨**(`-pedantic`環境で警告。4.7節参照)。void用途は `DEFINE_SUM_DISPATCH` を使う。
+- `RET_TYPE = void` は渡せない(`-pedantic`環境で制約違反の警告。[C-08](./docs/constraints.md#c-08))。void用途は `DEFINE_SUM_DISPATCH` を使う。
 
 ```c
 DEFINE_SUM_MATCH(Shape, SHAPE_VARIANTS, Shape_area, double)
@@ -425,12 +425,17 @@ IntOrStr b = IntOrStr_new(((StrBox){ "hi" }));
 |---|---|
 | `SUM_UNREACHABLE()` | `DEFINE_SUM_MATCH`/`DEFINE_SUM_COPY` の switch 末尾で使う。GCC/Clangでは`__builtin_unreachable()`、それ以外では`abort()`にフォールバック |
 | `SUM_MAYBE_UNUSED` | 生成される全`static inline`関数に付与される`__attribute__((unused))`。Clangの`-Wunused-function`対策([VERIFICATION_LOG.md](./VERIFICATION_LOG.md) 7節) |
-| `SUM_TAG_ENTRY` / `SUM_UNION_MEMBER` / `SUM_CTOR` / `SUM_GETTER` | `DEFINE_SUM_TYPE`が内部で使うアスペクトマクロ |
-| `SUM_MATCH_PARAM` / `SUM_MATCH_CASE` | `DEFINE_SUM_MATCH`が内部で使うアスペクトマクロ |
+| `SUM_TAG_ENTRY` / `SUM_UNION_MEMBER` / `SUM_CTOR` / `SUM_GETTER` / `SUM_GETTER_CONST` | `DEFINE_SUM_TYPE`が内部で使うアスペクトマクロ |
+| `SUM_VALUE_DISPATCHER_` | 値を返す3ディスパッチャ(`DEFINE_SUM_MATCH` / `DEFINE_SUM_MATCH_CONST` / `DEFINE_SUM_COPY`)が共有する骨格。self の型・PARAM・CASE を差し替えて使う。不正 tag 時の処理(`SUM_UNHANDLED_TAG` → `SUM_UNREACHABLE`)はここにだけ書かれている |
+| `SUM_MATCH_PARAM` / `SUM_MATCH_CASE` / `SUM_MATCH_CONST_PARAM` | `DEFINE_SUM_MATCH` / `DEFINE_SUM_MATCH_CONST` が内部で使うアスペクトマクロ(case 節は両者で共用) |
 | `SUM_DISPATCH_PARAM` / `SUM_DISPATCH_CASE` | `DEFINE_SUM_DISPATCH`が内部で使うアスペクトマクロ |
 | `SUM_DESTROY_PARAM` / `SUM_DESTROY_CASE` | `DEFINE_SUM_DESTROY`が内部で使うアスペクトマクロ |
 | `SUM_COPY_PARAM` / `SUM_COPY_CASE` | `DEFINE_SUM_COPY`が内部で使うアスペクトマクロ |
 | `SUM_GENERIC_ASSOC` | `DEFINE_SUM_NEW_GENERIC`が内部で使うアスペクトマクロ(C11以降限定) |
+
+**生成コード内のローカル識別子。** 生成される関数の仮引数・ローカル変数は `sum_` で始まり `_` で終わる名前(`sum_self_`, `sum_ctx_`, `sum_value_`, `sum_on_<tag>_`, `sum_copy_<tag>_`, `sum_handled_`)に限られる。利用側が `self` / `ctx` / `NAME_on_<tag>` のような名前を大域に持っていても `-Wshadow` は出ない([G-020](./docs/GUARANTEES.md#g-020))。逆に利用側は `sum_*_` の形の識別子を定義しないこと([ADR-0011](./docs/adr/0011-reserved-internal-identifiers.md))。
+
+**生成される `switch` に `default:` はない。** `-Wswitch-default` や「switch の末尾に default を置く」規約と衝突する。理由と呼び出し側での回避方法は [C-14](./docs/constraints.md#c-14)。
 
 ---
 
