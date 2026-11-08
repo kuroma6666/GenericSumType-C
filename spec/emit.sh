@@ -139,11 +139,12 @@ DETAIL
 case "${1:-}" in
     --write) generate > "$OUT"; echo "生成しました: docs/GUARANTEES.md" ;;
     --check)
-        if diff -u "$OUT" <(generate) > /tmp/guarantees.diff 2>&1; then
+        # 固定パスの一時ファイルは使わない（同時実行や他ユーザーのファイルと衝突する）
+        if diff_out=$(diff -u "$OUT" <(generate)); then
             echo "OK  docs/GUARANTEES.md は spec/ と同期しています"
         else
             echo "NG  docs/GUARANTEES.md が spec/ と食い違っています。spec/emit.sh --write を実行してください"
-            cat /tmp/guarantees.diff
+            printf '%s\n' "$diff_out"
             exit 1
         fi
         ;;

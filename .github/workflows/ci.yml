@@ -31,33 +31,18 @@ jobs:
       - name: Show compiler version
         run: $CC --version
 
-      - name: Build all examples
+      - name: Build and run all examples
+        # ビルドと実行を同じループで行う。実行するデモの一覧を別に持つと、
+        # デモを足したときにビルドはされるが実行されない、という漏れが起きる。
+        # -pthread は threadsafe_dispatch_demo のためだが、他に付けても害はないので一律に付ける。
         run: |
           set -e
           for f in examples/*.c; do
+            bin="/tmp/$(basename "$f" .c)"
             echo "== $f =="
-            if [ "$(basename "$f")" = "threadsafe_dispatch_demo.c" ]; then
-              $CC $CFLAGS -pthread -o "/tmp/$(basename "$f" .c)" "$f"
-            else
-              $CC $CFLAGS -o "/tmp/$(basename "$f" .c)" "$f"
-            fi
+            $CC $CFLAGS -pthread -o "$bin" "$f"
+            "$bin"
           done
-
-      - name: Run example binaries (デモの実行が落ちないことも確認する)
-        run: |
-          set -e
-          /tmp/demo
-          /tmp/shape_demo
-          /tmp/command_demo
-          /tmp/resource_demo
-          /tmp/threadsafe_dispatch_demo
-          /tmp/internal_command_demo
-          /tmp/protocol_frame_demo
-          /tmp/recipe_param_demo
-          /tmp/generic_ctor_demo
-          /tmp/const_view_demo
-          /tmp/either_demo
-          /tmp/result_demo
 
       - name: Build and run unit tests (AddressSanitizer付き)
         # tests/test_*.c を全て対象にする(ライブラリ本体のtest_generic_sum_type.cに加え、
@@ -74,24 +59,35 @@ jobs:
             "/tmp/$tbase"
           done
 
+      - name: Build examples and tests at -O2 (最適化時にしか出ない警告を検出する)
+        # GCC の -Wstringop-truncation / -Wmaybe-uninitialized 等は最適化時にしか出ない。
+        # 利用側は -O2 -Wall -Wextra -Werror でビルドするのが普通なので、その組み合わせでも
+        # 警告が出ないことを確かめる。実際に examples/recipe_command.h が -O0 では通り
+        # -O2 では落ちていた。テストは -O2 でも実行して結果が変わらないことまで見る。
+        run: |
+          set -e
+          for f in examples/*.c tests/test_*.c; do
+            echo "== $f (-O2) =="
+            $CC $CFLAGS -O2 -pthread -o "/tmp/o2_$(basename "$f" .c)" "$f"
+          done
+          for tf in tests/test_*.c; do
+            "/tmp/o2_$(basename "$tf" .c)"
+          done
+
       - name: Verify compile-time guarantees (spec/)
         # このライブラリのランタイム挙動は switch 一つ分しかなく、実際に約束しているのは
         # 「どんなコードがコンパイルを通り、どんなコードが通らないか」である。
         # spec/manifest.tsv がその仕様の実体で、判定器はコンパイラそのもの。
         # std 列によって、そのC標準で意味を持つケースだけが選ばれる
         # (_Generic に依存するケースは c99 で自動スキップされる)。
-        run: |
-          chmod +x spec/run.sh
-          CC=$CC STD=${{ matrix.std }} spec/run.sh
+        run: CC=$CC STD=${{ matrix.std }} spec/run.sh
 
       - name: Check docs/GUARANTEES.md is in sync with spec/
         # GUARANTEES.md は spec/ からの生成物。手で編集された場合や、
         # manifest.tsv だけ直して再生成し忘れた場合にここで落ちる。
         # 「ドキュメントに書いた保証」と「実際に検査されている保証」の乖離を
         # 構造的に防ぐための検査であり、以前この2つは実際に食い違っていた。
-        run: |
-          chmod +x spec/emit.sh
-          spec/emit.sh --check
+        run: spec/emit.sh --check
 
       - name: Check Markdown cross-references
         # 制約と保証は C-01 / G-001 という安定IDで相互参照する規約にしている。

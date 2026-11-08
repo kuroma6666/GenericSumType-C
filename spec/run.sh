@@ -32,13 +32,12 @@ selected() {
     return 1
 }
 
-# manifest の std 列と、いま検査している STD が噛み合うか
+# manifest の std 列と、いま検査している STD が噛み合うか（値の妥当性は呼び出し側で検査済み）
 std_applies() {
     case "$1" in
         any)     return 0 ;;
-        c11+)    [ "$STD" != "c99" ] && return 0 || return 1 ;;
-        c99only) [ "$STD"  = "c99" ] && return 0 || return 1 ;;
-        *)       echo "manifest: 未知の std 値 '$1'" >&2; return 1 ;;
+        c11+)    [ "$STD" != "c99" ] ;;
+        c99only) [ "$STD"  = "c99" ] ;;
     esac
 }
 
@@ -101,6 +100,16 @@ echo
 while IFS=$'\t' read -r id kind expect std ref title; do
     case "$id" in ''|\#*) continue ;; esac
     selected "$id" || continue
+    # manifest の列の値に誤りがあれば SKIP ではなく NG にする。
+    # 誤記を黙ってスキップすると、そのケースが一度も検査されないまま通ってしまう。
+    case "$kind" in
+        guarantee|known-limit) ;;
+        *) report NG "$id" "$title" "  manifest: 未知の kind 値 '$kind'"; continue ;;
+    esac
+    case "$std" in
+        any|c11+|c99only) ;;
+        *) report NG "$id" "$title" "  manifest: 未知の std 値 '$std'"; continue ;;
+    esac
     if ! std_applies "$std"; then
         skip=$((skip+1))
         printf 'SKIP  %-6s %s (std=%s)\n' "$id" "$title" "$std"

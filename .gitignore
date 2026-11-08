@@ -9,12 +9,24 @@
 
 # このリポジトリのデモ/テストは拡張子なしバイナリとして生成されることが多いので、
 # ソースファイル名と同名の拡張子なしバイナリを明示的に除外する
-demo
-shape_demo
+# (examples/*.c と tests/*.c の basename 全件。ファイルを足したらここにも足す)
 command_demo
+const_view_demo
+demo
+either_demo
+generic_ctor_demo
+internal_command_demo
+protocol_frame_demo
+recipe_param_demo
 resource_demo
-threadsafe_dispatch_demo
+result_demo
+shape_demo
 test_generic_sum_type
+test_internal_command
+test_protocol_frame
+test_recipe_command
+test_sum_new_generic
+threadsafe_dispatch_demo
 
 # エディタ・OS由来
 .vscode/
