@@ -185,3 +185,9 @@ GCCの`-fanalyzer`も試したが、このsandbox環境の`gcc 11.4.0`では`cha
 ### 決定済み・スコープ外とした項目(design_spec.md 8節に集約済み)
 
 再帰的直和型のサポート見送り、MSVCサポート見送り、関数テーブル方式の不採用など、決定済みでスコープ外とした項目の一覧は `design_spec.md` 8節に残してある(結論のみで経緯を追う必要がないため)。
+
+> **後日の変更。** 旧 `design_spec.md` 8節は文書の分割で廃止した。決定済み・スコープ外の項目は
+> [ADR-0006](./docs/adr/0006-no-recursive-sum-types.md)（再帰的直和型）、
+> [ADR-0007](./docs/adr/0007-msvc-out-of-scope.md)（MSVC）、
+> [ADR-0008](./docs/adr/0008-generic-constructor-selection.md)（関数テーブル方式の不採用）と
+> [requirements.md の非目標](./docs/requirements.md#非目標) にある。未決の検討課題は GitHub Issues で管理する。

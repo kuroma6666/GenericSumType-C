@@ -22,6 +22,7 @@
 | [C-11](#c-11) | マクロ呼び出しのコピー&ペースト運用は未検証 | なし（運用ルール） |
 | [C-12](#c-12) | デバッグ容易性のトレードオフ | なし |
 | [C-13](#c-13) | payload 型が変わる関数合成は汎用化できない | なし（言語仕様上の制約） |
+| [C-14](#c-14) | 生成される `switch` に `default:` がなく `-Wswitch-default` と衝突する | なし（設計判断） |
 
 ---
 
@@ -323,3 +324,34 @@ Rust / F# の `map` / `and_then` / `map_err` のように **payload 型が変わ
 流れるようなチェーンは言語機能の制約でそのままは再現できない。これは
 「値としてのエラー表現（直和型・網羅 match・述語・fold）は素直に書けるが、
 関数**合成**は言語特性に依存する」という一般論の一例でもある。
+
+---
+
+<a id="c-14"></a>
+
+## C-14 生成される `switch` に `default:` がなく `-Wswitch-default` と衝突する
+
+全ディスパッチャが生成する `switch` は意図的に `default:` を持たない。`NAME_tag_t` をマクロ経由以外で
+拡張された場合に `-Wswitch` の網羅性警告を働かせるためで、不正 tag の検知は `default:` ではなく
+`SUM_UNHANDLED_TAG` フックが担う（[ADR-0010](./adr/0010-unhandled-tag-hook.md)）。
+
+その帰結として、`-Wswitch-default`（GCC、Clang 18 以降）や「`switch` の末尾に必ず `default:` を置く」
+というコーディング規約（MISRA C:2012 Rule 16.4、ESCR R3）と衝突する。`-Wswitch-default -Werror` の下では
+`DEFINE_SUM_*` を呼んだ時点でビルドが落ちる（gcc 13.3 / clang 18.1 で確認）。
+
+`default:` を足して代わりに `-Wswitch-enum` へ頼る案は採らない。`-Wswitch-enum` は `-Wall -Wextra` に
+含まれず、網羅性を「ビルドフラグの運用に依存させない」という主目的
+（[ADR-0001](./adr/0001-x-macro-code-generation.md)）に反するため。
+
+### 運用
+
+生成マクロの呼び出し箇所を診断 pragma で囲み、規約からの逸脱をその行に限定する
+（逸脱の記録としては本項と ADR-0010 を引く）。pragma は呼び出し側のファイルに置けばよい。
+GCC / Clang とも、マクロ定義側ではなく展開位置の pragma 状態が診断に適用されることを確認済み。
+
+```c
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch-default"
+DEFINE_SUM_MATCH(Shape, SHAPE_VARIANTS, Shape_area, double)
+#pragma GCC diagnostic pop
+```

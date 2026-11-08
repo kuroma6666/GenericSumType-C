@@ -89,10 +89,12 @@ GenericSumType-C/
 │   ├── test_recipe_command.c       # recipe_command.hの単体テスト
 │   └── test_sum_new_generic.c      # DEFINE_SUM_NEW_GENERIC/SUM_NEWの単体テスト(C11以降限定・自己ガード付き)
 ├── spec/                          # コンパイル時保証の実行可能仕様(単一ソース)
+│   ├── README.md                   # spec/ の使い方・ケースの足し方
 │   ├── manifest.tsv                # 保証の一覧。ここが仕様の実体
 │   ├── cases/G-NNN.c               # ケース断片(1ファイル1ケース)
 │   ├── run.sh                      # 判定(コンパイラを実際に走らせて期待結果と突き合わせる)
-│   └── emit.sh                     # docs/GUARANTEES.md を生成する
+│   ├── emit.sh                     # docs/GUARANTEES.md を生成する
+│   └── check_links.py              # Markdown 相互リンク(パス・アンカー)の検査
 ├── verify/
 │   ├── cbmc_destroy_harness.c      # DEFINE_SUM_DESTROY呼び出し忘れ/cleanup属性の二重解放をCBMCで検証するハーネス
 │   ├── cbmc_verify_destroy.sh      # 上記ハーネスの3ケースをまとめて実行するスクリプト
@@ -100,7 +102,7 @@ GenericSumType-C/
 ├── docs/
 │   ├── requirements.md            # 何を解くか・採用条件・非目標
 │   ├── GUARANTEES.md              # コンパイル時に何が保証されるか(spec/ からの生成物)
-│   ├── constraints.md             # できないことの一覧(C-01〜C-13)
+│   ├── constraints.md             # できないことの一覧(C-01〜C-14)
 │   └── adr/                       # 設計判断の記録(なぜAではなくBか。1判断1ファイル)
 ├── .github/workflows/ci.yml       # GitHub Actions(gcc/clang × c99/c11/c17)
 ├── api_reference.md               # APIリファレンス(マクロ一覧・シグネチャ)
@@ -147,7 +149,7 @@ spec/emit.sh --check            # docs/GUARANTEES.md が spec/ と同期して�
 コンパイラそのものになる。[docs/GUARANTEES.md](./docs/GUARANTEES.md) はそこからの生成物で、
 CI が同期を検査しているため手で編集してはならない。詳しくは [spec/README.md](./spec/README.md)。
 
-CIでは `gcc`/`clang` × `c99`/`c11`/`c17` の全6組み合わせで、上記に加え全デモの実行確認まで自動実行している([ci.yml](./.github/workflows/ci.yml))。
+CIでは `gcc`/`clang` × `c99`/`c11`/`c17` の全6組み合わせで、上記に加え全デモの実行確認と `-O2` でのビルド(最適化時にしか出ない警告の検出)まで自動実行している([ci.yml](./.github/workflows/ci.yml))。
 
 ### 任意の追加検証(CBMC)
 
@@ -156,7 +158,6 @@ CBMC(Bounded Model Checker for C)が使える環境であれば、`verify/`配�
 ```sh
 sudo apt-get install cbmc
 cd verify
-chmod +x cbmc_verify_destroy.sh
 ./cbmc_verify_destroy.sh
 ```
 
@@ -171,7 +172,7 @@ chmod +x cbmc_verify_destroy.sh
 | [docs/requirements.md](./docs/requirements.md) | このライブラリを**使うべきか**。想定利用者・採用すべきでない状況・非目標 |
 | [api_reference.md](./api_reference.md) | **何ができるか**。マクロ・関数のシグネチャ一覧 |
 | [docs/GUARANTEES.md](./docs/GUARANTEES.md) | **何がコンパイル時に保証されるか**。`spec/` からの生成物 |
-| [docs/constraints.md](./docs/constraints.md) | **何ができないか**。制約カタログ(`C-01`〜`C-13`) |
+| [docs/constraints.md](./docs/constraints.md) | **何ができないか**。制約カタログ(`C-01`〜`C-14`) |
 | [docs/adr/](./docs/adr/) | **なぜそう設計したか**。1判断1ファイルの追記型 |
 | [spec/](./spec/) | 保証の実行可能仕様。ケースを足すならここ |
 | [VERIFICATION_LOG.md](./VERIFICATION_LOG.md) | **結論にどう辿り着いたか**。訂正履歴・規格条文との突き合わせ・見つかったバグ |
