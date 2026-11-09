@@ -37,6 +37,7 @@
 | [G-017](#g-017) | コンパイル失敗 | C11 以降のみ | typedef 別名で同一型になった 2 variant を検出する | [C-01](constraints.md#c-01) |
 | [G-019](#g-019) | ビルド・実行成功 | C99 以降すべて | 不正 tag で SUM_UNHANDLED_TAG が発火しハンドラは呼ばれない | [ADR-0010](adr/0010-unhandled-tag-hook.md) |
 | [G-020](#g-020) | コンパイル成功 | C99 以降すべて | 生成コードの仮引数が利用側の大域名と衝突せず -Wshadow を出さない | [ADR-0011](adr/0011-reserved-internal-identifiers.md) |
+| [G-022](#g-022) | コンパイル成功 | C99 以降すべて | C-14 の pragma 回避策で -Wswitch-default 下でも生成 switch が通る | [C-14](constraints.md#c-14) |
 
 ## 既知の限界
 
@@ -45,6 +46,7 @@
 | [G-003](#g-003) | コンパイル成功 | C99 以降すべて | 型が同一の variant 間の順序取り違えは検出できない | [C-01](constraints.md#c-01) |
 | [G-005](#g-005) | コンパイル失敗 | C99 以降すべて | 関数ポインタ型を typedef せずペイロードに渡す | [C-02](constraints.md#c-02) |
 | [G-018](#g-018) | コンパイル成功 | C99 のみ | C99 ではペイロード型の重複を検出できない | [C-01](constraints.md#c-01) |
+| [G-021](#g-021) | コンパイル失敗 | C99 以降すべて | -Wswitch-default を error にすると default のない生成 switch が落ちる | [C-14](constraints.md#c-14) |
 
 ---
 
@@ -637,3 +639,75 @@ int main(void) {
 ```
 
 <sub>ケース断片: [`spec/cases/G-020.c`](../spec/cases/G-020.c)</sub>
+
+<a id="g-021"></a>
+
+### G-021 — -Wswitch-default を error にすると default のない生成 switch が落ちる
+
+| 種別 | 期待結果 | 対象 | 根拠 |
+|---|---|---|---|
+| 既知の限界 | コンパイル失敗 | C99 以降すべて | [C-14](constraints.md#c-14) |
+
+```c
+/* 生成される switch は意図的に default: を持たない（ADR-0010: NAME_tag_t を手で拡張された
+ * ときに -Wswitch の網羅性警告を殺さないため）。その帰結として、-Wswitch-default を error に
+ * 昇格した TU では DEFINE_SUM_* を呼んだ時点で落ちる。これを既知の限界として固定する。
+ * 呼び出し側での回避策（pragma で囲む）が機能することは G-022 で確かめる。
+ * 注意: -Wswitch-default を知らない Clang 17 以前では -Wunknown-warning-option が -Werror で
+ * error になり、別の理由でコンパイルが失敗する（結果だけ見ると同じ）。CI の Clang は 18。 */
+#pragma GCC diagnostic error "-Wswitch-default"
+#include "generic_sum_type.h"
+typedef struct { int a; } PA;
+typedef struct { int b; } PB;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, b, PB)
+DEFINE_SUM_TYPE(T, V)
+DEFINE_SUM_MATCH(T, V, T_match, int)   /* 生成 switch に default: が無いので error */
+static int ma(PA *p) { return p->a; }
+static int mb(PB *p) { return p->b; }
+int main(void) { T t = T_new_a((PA){ 1 }); return T_match(&t, ma, mb) - 1; }
+```
+
+<sub>ケース断片: [`spec/cases/G-021.c`](../spec/cases/G-021.c)</sub>
+
+<a id="g-022"></a>
+
+### G-022 — C-14 の pragma 回避策で -Wswitch-default 下でも生成 switch が通る
+
+| 種別 | 期待結果 | 対象 | 根拠 |
+|---|---|---|---|
+| 保証 | コンパイル成功 | C99 以降すべて | [C-14](constraints.md#c-14) |
+
+```c
+/* C-14 の回避策。生成マクロの呼び出し箇所だけを診断 pragma で囲むと、-Wswitch-default を
+ * error に昇格した TU でも通る。診断にはマクロ定義側（ヘッダ）ではなく展開位置（呼び出し側）の
+ * pragma 状態が適用される、という前提の確認でもある。DEFINE_SUM_TYPE は switch を生成しないので
+ * 囲む必要がない。利用側自身の switch（main 内）は規約どおり default を持つ。
+ * 注意: Clang 17 以前は -Wswitch-default を知らず、このケースは -Wunknown-warning-option で落ちる。
+ * その場合は Clang 18 以降で再実行すること。 */
+#pragma GCC diagnostic error "-Wswitch-default"
+#include "generic_sum_type.h"
+typedef struct { int a; } PA;
+typedef struct { int b; } PB;
+#define V(X, NAME, EXTRA) X(NAME, EXTRA, a, PA) X(NAME, EXTRA, b, PB)
+DEFINE_SUM_TYPE(T, V)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch-default"
+DEFINE_SUM_MATCH(T, V, T_match, int)
+DEFINE_SUM_DISPATCH(T, V, T_dispatch, int)
+#pragma GCC diagnostic pop
+static int ma(PA *p) { return p->a; }
+static int mb(PB *p) { return p->b; }
+static void da(PA *p, int *c) { (void)p; (*c)++; }
+static void db(PB *p, int *c) { (void)p; (*c)++; }
+int main(void) {
+    T t = T_new_a((PA){ 1 });
+    int calls = 0;
+    T_dispatch(&t, &calls, da, db);
+    switch (calls) {
+        case 1:  return T_match(&t, ma, mb) - 1;
+        default: return 1;
+    }
+}
+```
+
+<sub>ケース断片: [`spec/cases/G-022.c`](../spec/cases/G-022.c)</sub>

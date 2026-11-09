@@ -22,7 +22,7 @@
 | [C-11](#c-11) | マクロ呼び出しのコピー&ペースト運用は未検証 | なし（運用ルール） |
 | [C-12](#c-12) | デバッグ容易性のトレードオフ | なし |
 | [C-13](#c-13) | payload 型が変わる関数合成は汎用化できない | なし（言語仕様上の制約） |
-| [C-14](#c-14) | 生成される `switch` に `default:` がなく `-Wswitch-default` と衝突する | なし（設計判断） |
+| [C-14](#c-14) | 生成される `switch` に `default:` がなく `-Wswitch-default` と衝突する | あり（[G-021](./GUARANTEES.md#g-021), [G-022](./GUARANTEES.md#g-022)） |
 
 ---
 
@@ -181,6 +181,15 @@ GCC / Clang が独自に提供する処理系拡張である。
 
 MSVC は対象外と決定しているため、これ以上の検討は行わない（[ADR-0007](./adr/0007-msvc-out-of-scope.md)）。
 
+### Clang の `-Weverything` との関係
+
+`SUM_MAYBE_UNUSED`（`__attribute__((unused))`）を付けた生成関数が実際に使われると、Clang の
+`-Weverything` に含まれる `-Wused-but-marked-unused` が警告する（clang 18.1 で確認）。
+生成された関数のうちどれを使うかは利用側ごとに異なり、ライブラリ側で属性の有無を使い分けることは
+できないため、この警告は回避できない。`-Weverything` は Clang のドキュメント自身が常用を勧めていない
+フラグで、本ライブラリの前提（`-Wall -Wextra -Werror`）の範囲外である。使う場合は
+`-Wno-used-but-marked-unused` を併用すること。
+
 ---
 
 <a id="c-08"></a>
@@ -337,7 +346,7 @@ Rust / F# の `map` / `and_then` / `map_err` のように **payload 型が変わ
 
 その帰結として、`-Wswitch-default`（GCC、Clang 18 以降）や「`switch` の末尾に必ず `default:` を置く」
 というコーディング規約（MISRA C:2012 Rule 16.4、ESCR R3）と衝突する。`-Wswitch-default -Werror` の下では
-`DEFINE_SUM_*` を呼んだ時点でビルドが落ちる（gcc 13.3 / clang 18.1 で確認）。
+`DEFINE_SUM_*` を呼んだ時点でビルドが落ちる（[G-021](./GUARANTEES.md#g-021)。既知の限界として固定している）。
 
 `default:` を足して代わりに `-Wswitch-enum` へ頼る案は採らない。`-Wswitch-enum` は `-Wall -Wextra` に
 含まれず、網羅性を「ビルドフラグの運用に依存させない」という主目的
@@ -347,7 +356,10 @@ Rust / F# の `map` / `and_then` / `map_err` のように **payload 型が変わ
 
 生成マクロの呼び出し箇所を診断 pragma で囲み、規約からの逸脱をその行に限定する
 （逸脱の記録としては本項と ADR-0010 を引く）。pragma は呼び出し側のファイルに置けばよい。
-GCC / Clang とも、マクロ定義側ではなく展開位置の pragma 状態が診断に適用されることを確認済み。
+GCC / Clang とも、マクロ定義側ではなく展開位置の pragma 状態が診断に適用される。この回避策が
+機能することは [G-022](./GUARANTEES.md#g-022) で機械検査している。`DEFINE_SUM_TYPE` は `switch` を
+生成しないので囲む必要はなく、囲むのはディスパッチャを生成する5マクロだけでよい。
+`-Wswitch-default` を知らない Clang 17 以前では、この pragma 自体が `-Wunknown-warning-option` を出す。
 
 ```c
 #pragma GCC diagnostic push

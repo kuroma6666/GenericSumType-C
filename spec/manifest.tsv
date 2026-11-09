@@ -36,3 +36,5 @@ G-017	guarantee	compile-fail	c11+	docs/constraints.md#c-01	typedef 別名で同�
 G-018	known-limit	compile-pass	c99only	docs/constraints.md#c-01	C99 ではペイロード型の重複を検出できない
 G-019	guarantee	run-pass	any	docs/adr/0010-unhandled-tag-hook.md	不正 tag で SUM_UNHANDLED_TAG が発火しハンドラは呼ばれない
 G-020	guarantee	compile-pass	any	docs/adr/0011-reserved-internal-identifiers.md	生成コードの仮引数が利用側の大域名と衝突せず -Wshadow を出さない
+G-021	known-limit	compile-fail	any	docs/constraints.md#c-14	-Wswitch-default を error にすると default のない生成 switch が落ちる
+G-022	guarantee	compile-pass	any	docs/constraints.md#c-14	C-14 の pragma 回避策で -Wswitch-default 下でも生成 switch が通る
