@@ -36,9 +36,22 @@ typedef struct { int total; } SumCtx;
 DEFINE_SUM_TYPE(IntOrStr, IOS_VARIANTS)
 DEFINE_SUM_MATCH(IntOrStr, IOS_VARIANTS, IntOrStr_to_len, int)
 DEFINE_SUM_DISPATCH(IntOrStr, IOS_VARIANTS, IntOrStr_dispatch, SumCtx)
-DEFINE_SUM_DESTROY(IntOrStr, IOS_VARIANTS, IntOrStr_destroy)
-DEFINE_SUM_COPY(IntOrStr, IOS_VARIANTS, IntOrStr_copy)
 DEFINE_SUM_MATCH_CONST(IntOrStr, IOS_VARIANTS, IntOrStr_to_len_const, int)
+
+/* DESTROY / COPY の検証用: heap 文字列を所有する payload を持つ SumType。
+ * IntOrStr の StrBox は文字列リテラルを指す read-only な const char* であり、それを
+ * free() するには const を外すキャストが要る（ESCR R2: const を外すキャストをしない）。
+ * 読み取り専用の文字列と所有する文字列は別の型にし、所有権の違いを型で表す
+ * （examples/resource_demo.c の LogText{ char *msg } と同じ形）。 */
+typedef struct { char *s; } OwnedStr;
+
+#define OWNED_VARIANTS(X, NAME, EXTRA) \
+    X(NAME, EXTRA, n, IntBox)          \
+    X(NAME, EXTRA, s, OwnedStr)
+
+DEFINE_SUM_TYPE(Owned, OWNED_VARIANTS)
+DEFINE_SUM_DESTROY(Owned, OWNED_VARIANTS, Owned_destroy)
+DEFINE_SUM_COPY(Owned, OWNED_VARIANTS, Owned_copy)
 
 /* Either イディオム(left/right の2 variant + DEFINE_EITHER_HELPERS)の検証用 */
 typedef struct { int code; } ELeft;
@@ -105,45 +118,46 @@ static void test_dispatch_mutates_ctx_and_calls_lock_hooks(void) {
 }
 
 /* ============ 4. DEFINE_SUM_DESTROY: タグごとに正しいハンドラが呼ばれるか ============ */
-static int g_destroy_i_called = 0;
+static int g_destroy_n_called = 0;
 static int g_destroy_s_called = 0;
-static void destroy_i(IntBox *b) { (void)b; g_destroy_i_called++; }
-static void destroy_s(StrBox *b) { free((void *)b->v); g_destroy_s_called++; }
+static void destroy_n(IntBox *b) { (void)b; g_destroy_n_called++; }
+static void destroy_s(OwnedStr *o) { free(o->s); o->s = NULL; g_destroy_s_called++; }
 
 static void test_destroy_dispatches_per_tag(void) {
-    IntOrStr a = IntOrStr_new_i((IntBox){ .v = 1 });
-    IntOrStr b = IntOrStr_new_s((StrBox){ .v = strdup("owned") });
+    Owned a = Owned_new_n((IntBox){ .v = 1 });
+    Owned b = Owned_new_s((OwnedStr){ .s = strdup("owned") });
 
-    g_destroy_i_called = 0;
+    g_destroy_n_called = 0;
     g_destroy_s_called = 0;
-    IntOrStr_destroy(&a, destroy_i, destroy_s);
-    IntOrStr_destroy(&b, destroy_i, destroy_s);
+    Owned_destroy(&a, destroy_n, destroy_s);
+    Owned_destroy(&b, destroy_n, destroy_s);
 
-    assert(g_destroy_i_called == 1);
+    assert(g_destroy_n_called == 1);
     assert(g_destroy_s_called == 1);
+    assert(Owned_get_s(&b)->s == NULL);   /* ハンドラが payload 自体を書き換えられる（可変版） */
 }
 
 /* ============ 5. DEFINE_SUM_COPY: ポインタ資源のディープコピー ============ */
-static IntBox copy_i(const IntBox *b) { return *b; }
-static StrBox copy_s(const StrBox *b) { return (StrBox){ .v = strdup(b->v) }; }
+SUM_DEFINE_IDENTITY_COPY(copy_n, IntBox)   /* POD は浅いコピーで足りる（ヘルパ自体も検証対象） */
+static OwnedStr copy_s(const OwnedStr *o) { return (OwnedStr){ .s = strdup(o->s) }; }
 
 static void test_copy_is_deep_for_pointer_payload(void) {
-    IntOrStr original = IntOrStr_new_s((StrBox){ .v = strdup("copy-me") });
-    IntOrStr copy = IntOrStr_copy(&original, copy_i, copy_s);
+    Owned original = Owned_new_s((OwnedStr){ .s = strdup("copy-me") });
+    Owned copy = Owned_copy(&original, copy_n, copy_s);
 
-    StrBox *o = IntOrStr_get_s(&original);
-    StrBox *c = IntOrStr_get_s(&copy);
-    assert(o->v != c->v);              /* 別アドレス = ディープコピーされている */
-    assert(strcmp(o->v, c->v) == 0);   /* 内容は同一 */
+    OwnedStr *o = Owned_get_s(&original);
+    OwnedStr *c = Owned_get_s(&copy);
+    assert(o->s != c->s);              /* 別アドレス = ディープコピーされている */
+    assert(strcmp(o->s, c->s) == 0);   /* 内容は同一 */
 
-    IntOrStr_destroy(&original, destroy_i, destroy_s);
-    IntOrStr_destroy(&copy, destroy_i, destroy_s);
+    Owned_destroy(&original, destroy_n, destroy_s);
+    Owned_destroy(&copy, destroy_n, destroy_s);
 }
 
 static void test_copy_is_identity_for_pod_payload(void) {
-    IntOrStr original = IntOrStr_new_i((IntBox){ .v = 99 });
-    IntOrStr copy = IntOrStr_copy(&original, copy_i, copy_s);
-    assert(IntOrStr_get_i(&copy)->v == 99);
+    Owned original = Owned_new_n((IntBox){ .v = 99 });
+    Owned copy = Owned_copy(&original, copy_n, copy_s);
+    assert(Owned_get_n(&copy)->v == 99);
 }
 
 /* ============ 6. DEFINE_SUM_MATCH_CONST / getter_const: read-only アクセス ============ */
