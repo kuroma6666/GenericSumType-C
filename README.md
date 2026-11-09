@@ -47,6 +47,8 @@ int main(void) {
 
 `print_s` を渡し忘れたり、`print_i` と `print_s` の順序を入れ替えたりすると、`gcc`/`clang`単体で(特別な警告フラグなしで)コンパイルエラーになる。実例は [`examples/demo.c`](./examples/demo.c) を参照。
 
+この例は最小構成を示すため payload に素の基本型を使っている。実務では、2つの variant が同じ型を持つと順序取り違えの検出が効かなくなるため、1フィールドでも専用の `struct` で包むこと([C-01](./docs/constraints.md#c-01))。`demo.c` 以外のデモはすべてその形で書いてある。
+
 C11以降であれば、`DEFINE_SUM_NEW_GENERIC` / `SUM_NEW` でタグ名(`_i`/`_s`/`_f`)を書かずに構築できる。
 
 ```c
